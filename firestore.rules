@@ -1,0 +1,197 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isSafeText(value, maxLen) {
+      return value is string && value.size() <= maxLen;
+    }
+
+    function validDateKey(value) {
+      return value is string && value.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function validPercent(value) {
+      return value is int && value >= 0 && value <= 100;
+    }
+
+    function validScorePair(score, total) {
+      return score is int && total is int && score >= 0 && total >= 0 && score <= total;
+    }
+
+    function validDuration(value) {
+      return value is int && value >= 0 && value <= 86400;
+    }
+
+    function validMode(value) {
+      return value in ['guest', 'email', 'google'];
+    }
+
+    function validDailySummary(uid, dateKey) {
+      return request.resource.data.uid == uid
+        && request.resource.data.date == dateKey
+        && isSafeText(request.resource.data.name, 120)
+        && isSafeText(request.resource.data.email, 200)
+        && validMode(request.resource.data.mode)
+        && (!('customStudentId' in request.resource.data) || isSafeText(request.resource.data.customStudentId, 24));
+    }
+
+    function validAttemptPayload(uid, dateKey) {
+      return request.resource.data.uid == uid
+        && request.resource.data.date == dateKey
+        && validMode(request.resource.data.mode)
+        && validScorePair(request.resource.data.score, request.resource.data.total)
+        && validPercent(request.resource.data.percent)
+        && validDuration(request.resource.data.time_taken_sec)
+        && request.resource.data.leaderboard_eligible is bool
+        && isSafeText(request.resource.data.name, 120)
+        && isSafeText(request.resource.data.email, 200)
+        && isSafeText(request.resource.data.subject, 120)
+        && isSafeText(request.resource.data.chapter_name, 200)
+        && isSafeText(request.resource.data.test_id, 160)
+        && isSafeText(request.resource.data.test_name, 200)
+        && (!('customStudentId' in request.resource.data) || isSafeText(request.resource.data.customStudentId, 24));
+    }
+
+    function validProgressPayload(uid) {
+      return request.resource.data.uid == uid
+        && request.resource.data.totalExp is int
+        && request.resource.data.totalExp >= 0
+        && request.resource.data.totalExp <= 10000000
+        && request.resource.data.attempts is list
+        && request.resource.data.attempts.size() <= 5000
+        && request.resource.data.notebookCards is list
+        && request.resource.data.notebookCards.size() <= 5000;
+    }
+
+    // --- Core Collections ---
+
+    match /public_tests/{testId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /daily_tests/{dateKey} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /user_profiles/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && isSafeText(request.resource.data.name, 120)
+        && isSafeText(request.resource.data.email, 200)
+        && validMode(request.resource.data.mode)
+        && request.resource.data.leaderboard_eligible is bool
+        && (!('customStudentId' in request.resource.data) || isSafeText(request.resource.data.customStudentId, 24));
+      allow delete: if false;
+    }
+
+    match /user_progress/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validProgressPayload(uid);
+      allow delete: if false;
+    }
+
+    match /daily_results/{dateKey} {
+      allow read: if true;
+      allow write: if false;
+
+      match /users/{uid} {
+        allow read: if true;
+        allow create, update: if isOwner(uid)
+          && validDateKey(dateKey)
+          && validDailySummary(uid, dateKey);
+        allow delete: if false;
+
+        match /attempts/{attemptId} {
+          allow read: if true;
+          allow create: if isOwner(uid)
+            && validDateKey(dateKey)
+            && validAttemptPayload(uid, dateKey);
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    // --- Social & Friends (New) ---
+
+    match /public_profiles/{uid} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(uid)
+        && isSafeText(request.resource.data.name, 120)
+        && isSafeText(request.resource.data.customStudentId, 24);
+    }
+
+    match /user_friends/{uid} {
+      allow read: if isOwner(uid);
+
+      match /links/{friendUid} {
+        // Link add tabhi hoga jab accept ho ya request owner ho (simplified for social service)
+        allow read: if isOwner(uid);
+        allow create, update, delete: if isOwner(uid) || isOwner(friendUid);
+      }
+    }
+
+    match /friend_requests/{requestId} {
+      // Bhejnewala ya pane wala dekh sake
+      allow read: if isSignedIn() && (
+        request.auth.uid == resource.data.fromUid ||
+        request.auth.uid == resource.data.toUid
+      );
+
+      allow create: if isSignedIn() && request.resource.data.fromUid == request.auth.uid;
+
+      allow update: if isSignedIn() && (
+        request.auth.uid == resource.data.toUid ||
+        request.auth.uid == resource.data.fromUid
+      );
+
+      allow delete: if isSignedIn() && (
+        request.auth.uid == resource.data.toUid ||
+        request.auth.uid == resource.data.fromUid
+      );
+    }
+
+    // --- Legacy/Guest ---
+
+    match /guest_daily_results/{dateKey} {
+      allow read: if false;
+      allow write: if false;
+
+      match /users/{uid} {
+        allow read: if false;
+        allow create: if !isSignedIn()
+          && uid.matches('^guest_[A-Za-z0-9]{6,}$')
+          && validDateKey(dateKey)
+          && validDailySummary(uid, dateKey)
+          && request.resource.data.mode == 'guest';
+        allow update: if !isSignedIn()
+          && uid.matches('^guest_[A-Za-z0-9]{6,}$')
+          && validDateKey(dateKey)
+          && validDailySummary(uid, dateKey)
+          && request.resource.data.mode == 'guest'
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['migrated_to_uid', 'migrated_at', 'updated_at', 'customStudentId', 'name', 'email', 'date', 'mode', 'uid']);
+        allow delete: if false;
+
+        match /attempts/{attemptId} {
+          allow read: if false;
+          allow create: if !isSignedIn()
+            && uid.matches('^guest_[A-Za-z0-9]{6,}$')
+            && validDateKey(dateKey)
+            && validAttemptPayload(uid, dateKey)
+            && request.resource.data.mode == 'guest'
+            && request.resource.data.leaderboard_eligible == false;
+          allow update, delete: if false;
+        }
+      }
+    }
+  }
+}

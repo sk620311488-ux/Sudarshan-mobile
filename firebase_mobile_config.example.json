@@ -1,0 +1,15 @@
+{
+  "project_id": "sk-studies-a8338",
+  "android_package_name": "com.skstudies.sudarshanmobile",
+  "auth_modes": ["guest", "email_password", "google"],
+  "firestore_collections": {
+    "public_tests": "public_tests",
+    "daily_tests": "daily_tests",
+    "users": "users"
+  },
+  "notes": [
+    "Use flutterfire configure after installing Flutter and Firebase CLI.",
+    "Do not place admin service account keys inside the mobile app.",
+    "Student-facing writes should use Firebase Auth + Firestore client SDK."
+  ]
+}

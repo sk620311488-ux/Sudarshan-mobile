@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "794708033386",
+    "firebase_url": "https://sk-studies-a8338-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "sk-studies-a8338",
+    "storage_bucket": "sk-studies-a8338.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:794708033386:android:2ac979c6f1bd6995ee2f13",
+        "android_client_info": {
+          "package_name": "com.skstudies.sudarshan_mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "794708033386-hr110jh1q7b6i5340fgfnldl67nsmdh2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.skstudies.sudarshan_mobile",
+            "certificate_hash": "51e1d2fa5b9bd112b6f4117bb4f2a17ec7017037"
+          }
+        },
+        {
+          "client_id": "794708033386-br1lgk8q69dn5g0arsr216b8acnh0inm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBw1WMecEi1ZlMJRMU35knEYyeMFtrbgzY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "794708033386-br1lgk8q69dn5g0arsr216b8acnh0inm.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -180,25 +180,25 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _backgroundInit() async {
+    // 1. Refresh tests incrementally (High priority first)
+    await refreshTests();
+
     if (_session != null && !_session!.isGuest) {
       try {
         _session = await _userCloudService.hydrateSessionProfile(_session!);
         await _authService.saveSession(_session!);
 
-        // Always ensure the profile (and ID) is synced on boot for logged in users
+        // Ensure the profile (and ID) is synced on boot for logged in users
         await _userCloudService.ensureUserProfile(_session!);
 
         // Parallel non-critical cloud tasks
         await Future.wait([
           _loadCloudProgressIfAvailable(),
           _syncPublicProfileIfAvailable(),
-          refreshTests(),
         ]);
       } catch (e) {
         debugPrint('Background init error: $e');
       }
-    } else {
-      await refreshTests();
     }
 
     await _refreshDailyLeaderboard(silent: true);
@@ -208,29 +208,35 @@ class AppController extends ChangeNotifier {
   Future<void> refreshTests() async {
     _isRefreshingTests = true;
     notifyListeners();
+
     try {
-      final fetched = await _testService.loadTests();
-      if (fetched.isNotEmpty) {
-        _liveTests = fetched;
-        await _localStoreService.saveCachedCloudTests(fetched);
-        _message = 'Live tests loaded';
-      } else {
-        final cached = await _localStoreService.loadCachedCloudTests();
-        _liveTests = cached.isNotEmpty ? cached : _fallbackTests;
-        _message = cached.isNotEmpty
-            ? 'Cloud tests cache se loaded'
-            : 'Live tests not found, demo fallback loaded';
+      // 1. Try to fetch Daily Test first (Highest Priority)
+      final daily = await _testService.loadDailyTest();
+      if (daily != null) {
+        // Merge with existing live tests (replace if same ID)
+        final otherTests = _liveTests.where((t) => t.id != daily.id).toList();
+        _liveTests = [daily, ...otherTests];
+        await _localStoreService.saveCachedCloudTests(_liveTests);
+        notifyListeners(); // Immediate update for daily test
       }
-    } catch (_) {
-      final cached = await _localStoreService.loadCachedCloudTests();
-      _liveTests = cached.isNotEmpty ? cached : _fallbackTests;
-      _message = cached.isNotEmpty
-          ? 'Offline mode: cached cloud tests loaded'
-          : 'Cloud fetch fail hua, demo fallback loaded';
+
+      // 2. Fetch Public Tests (Second Priority)
+      final public = await _testService.loadPublicTests();
+      if (public.isNotEmpty) {
+        // Build final list: Daily (if exists) + Public
+        final dailyExists = _liveTests.firstWhere((t) => t.isDaily, orElse: () => _fallbackTests.first);
+        _liveTests = [if (dailyExists.isDaily) dailyExists, ...public];
+        await _localStoreService.saveCachedCloudTests(_liveTests);
+        _message = 'All tests synced';
+      }
+    } catch (e) {
+      debugPrint('Incremental refresh error: $e');
+      _message = 'Using cached data (Offline)';
     } finally {
       _isRefreshingTests = false;
       notifyListeners();
     }
+
     await _maybeNotifyForDailyTest();
     await _refreshDailyLeaderboard(silent: true);
     notifyListeners();

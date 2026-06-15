@@ -8,113 +8,75 @@ import '../config/mobile_config.dart';
 import '../models/app_models.dart';
 
 class TestService {
-  Future<List<AppTest>> loadTests() async {
+  Future<AppTest?> loadDailyTest() async {
     if (Firebase.apps.isNotEmpty) {
-      final firestoreTests = await _loadTestsFromFirestore();
-      if (firestoreTests.isNotEmpty) {
-        return firestoreTests;
-      }
-    }
-
-    return _loadTestsWithRest();
-  }
-
-  Future<List<AppTest>> _loadTestsFromFirestore() async {
-    final tests = <AppTest>[];
-
-    final dailyDoc = await FirebaseFirestore.instance
-        .collection(MobileFirebaseConfig.dailyTestsCollection)
-        .doc(_todayKey())
-        .get();
-
-    if (dailyDoc.exists) {
-      _addIfValid(
-        tests,
-        _toTest(
-          {...?dailyDoc.data(), 'id': dailyDoc.id},
-          id: dailyDoc.id,
-          forceDaily: true,
-        ),
-      );
-    } else {
-      final fallbackDaily = await FirebaseFirestore.instance
-          .collection(MobileFirebaseConfig.dailyTestsCollection)
-          .where('active', isEqualTo: true)
-          .orderBy('date', descending: true)
-          .limit(1)
-          .get();
-      if (fallbackDaily.docs.isNotEmpty) {
-        final doc = fallbackDaily.docs.first;
-        _addIfValid(
-          tests,
-          _toTest(
-            {...doc.data(), 'id': doc.id},
-            id: doc.id,
-            forceDaily: true,
-          ),
-        );
-      }
-    }
-
-    final publicTests = await FirebaseFirestore.instance
-        .collection(MobileFirebaseConfig.publicTestsCollection)
-        .get();
-    for (final doc in publicTests.docs) {
-      if (tests.any((test) => test.id == doc.id)) {
-        continue;
-      }
-      _addIfValid(
-        tests,
-        _toTest(
-          {...doc.data(), 'id': doc.id},
-          id: doc.id,
-          forcePublished: true,
-        ),
-      );
-    }
-
-    return tests;
-  }
-
-  Future<List<AppTest>> _loadTestsWithRest() async {
-    final tests = <AppTest>[];
-
-    final dailyDoc = await _fetchSingleDocument(
-      '${MobileFirebaseConfig.dailyTestsCollection}/${_todayKey()}',
-    );
-    if (dailyDoc != null) {
-      _addIfValid(tests, _toTest(dailyDoc, id: _todayKey(), forceDaily: true));
-    } else {
-      final dailyDocs =
-          await _fetchCollection(MobileFirebaseConfig.dailyTestsCollection);
-      dailyDocs.sort(
-        (a, b) => (b['date'] ?? '').toString().compareTo((a['date'] ?? '').toString()),
-      );
-
-      for (final doc in dailyDocs) {
-        if (doc['active'] != true) {
-          continue;
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection(MobileFirebaseConfig.dailyTestsCollection)
+            .doc(_todayKey())
+            .get();
+        if (doc.exists) {
+          final test = _toTest({...?doc.data(), 'id': doc.id}, id: doc.id, forceDaily: true);
+          if (_isValidTest(test)) return test;
         }
+
+        final fallback = await FirebaseFirestore.instance
+            .collection(MobileFirebaseConfig.dailyTestsCollection)
+            .where('active', isEqualTo: true)
+            .orderBy('date', descending: true)
+            .limit(1)
+            .get();
+        if (fallback.docs.isNotEmpty) {
+          final doc = fallback.docs.first;
+          final test = _toTest({...doc.data(), 'id': doc.id}, id: doc.id, forceDaily: true);
+          if (_isValidTest(test)) return test;
+        }
+      } catch (_) {}
+    }
+
+    // REST Fallback for Daily
+    try {
+      final dailyDoc = await _fetchSingleDocument('${MobileFirebaseConfig.dailyTestsCollection}/${_todayKey()}');
+      if (dailyDoc != null) {
+        final test = _toTest(dailyDoc, id: _todayKey(), forceDaily: true);
+        if (_isValidTest(test)) return test;
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  Future<List<AppTest>> loadPublicTests() async {
+    final tests = <AppTest>[];
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        final publicTests = await FirebaseFirestore.instance
+            .collection(MobileFirebaseConfig.publicTestsCollection)
+            .get();
+        for (final doc in publicTests.docs) {
+          _addIfValid(tests, _toTest({...doc.data(), 'id': doc.id}, id: doc.id, forcePublished: true));
+        }
+        if (tests.isNotEmpty) return tests;
+      } catch (_) {}
+    }
+
+    // REST Fallback
+    try {
+      final publicDocs = await _fetchCollection(MobileFirebaseConfig.publicTestsCollection);
+      for (final doc in publicDocs) {
         final id = (doc['id'] ?? '').toString();
-        if (id.isEmpty) {
-          continue;
-        }
-        _addIfValid(tests, _toTest(doc, id: id, forceDaily: true));
-        break;
+        _addIfValid(tests, _toTest(doc, id: id, forcePublished: true));
       }
-    }
-
-    final publicDocs =
-        await _fetchCollection(MobileFirebaseConfig.publicTestsCollection);
-    for (final doc in publicDocs) {
-      final id = (doc['id'] ?? '').toString();
-      if (id.isEmpty || tests.any((test) => test.id == id)) {
-        continue;
-      }
-      _addIfValid(tests, _toTest(doc, id: id, forcePublished: true));
-    }
+    } catch (_) {}
 
     return tests;
+  }
+
+  Future<List<AppTest>> loadTests() async {
+    final results = await Future.wait([loadDailyTest(), loadPublicTests()]);
+    final daily = results[0] as AppTest?;
+    final public = results[1] as List<AppTest>;
+    return [if (daily != null) daily, ...public];
   }
 
   Future<List<Map<String, dynamic>>> _fetchCollection(String collection) async {

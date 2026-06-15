@@ -30,6 +30,7 @@ dependencies:
   crypto: ^3.0.7
   flutter_svg: ^2.3.0
   google_sign_in: 6.2.2
+  desktop_webview_auth: 0.0.16
 
 dev_dependencies:
   flutter_test:

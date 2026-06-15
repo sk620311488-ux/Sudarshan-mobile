@@ -12,6 +12,8 @@ class DefaultFirebaseOptions {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
+      case TargetPlatform.windows:
+        return web; // Windows can often use Web config for Firebase JS-like SDKs if using Dart implementation
       default:
         throw UnsupportedError(
           'DefaultFirebaseOptions are not supported for this platform.',

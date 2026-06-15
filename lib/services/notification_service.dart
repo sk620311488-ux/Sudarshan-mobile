@@ -7,7 +7,8 @@ class NotificationService {
   bool _initialized = false;
 
   Future<void> initialize() async {
-    if (_initialized || kIsWeb) {
+    if (_initialized || kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+      // Local notifications on Windows require extra setup or different package usually
       return;
     }
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');

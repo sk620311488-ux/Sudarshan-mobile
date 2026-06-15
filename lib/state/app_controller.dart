@@ -137,38 +137,46 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    _booting = true;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    _isDarkMode = prefs.getBool(_themeKey) ?? false;
-    _onboardingDone = prefs.getBool(_onboardingKey) ?? false;
-    _totalExp = prefs.getInt(_expKey) ?? 0;
-    _idChangeCount = prefs.getInt(_idChangeCountKey) ?? 0;
-    _lastIdChangeDate = prefs.getString(_idChangeDateKey) ?? '';
+    try {
+      _booting = true;
+      notifyListeners();
+      final prefs = await SharedPreferences.getInstance();
+      _isDarkMode = prefs.getBool(_themeKey) ?? false;
+      _onboardingDone = prefs.getBool(_onboardingKey) ?? false;
+      _totalExp = prefs.getInt(_expKey) ?? 0;
+      _idChangeCount = prefs.getInt(_idChangeCountKey) ?? 0;
+      _lastIdChangeDate = prefs.getString(_idChangeDateKey) ?? '';
 
-    await _notificationService.initialize();
+      await _notificationService.initialize();
 
-    // 1. Load critical local data first for instant UI
-    _session = await _authService.loadSession();
-    final results = await Future.wait([
-      _localStoreService.loadNotebookCards(),
-      _localStoreService.loadCustomTests(),
-      _localStoreService.loadAttempts(),
-      _localStoreService.loadCachedCloudTests(),
-    ]);
+      // 1. Load critical local data first for instant UI
+      _session = await _authService.loadSession();
+      final results = await Future.wait([
+        _localStoreService.loadNotebookCards(),
+        _localStoreService.loadCustomTests(),
+        _localStoreService.loadAttempts(),
+        _localStoreService.loadCachedCloudTests(),
+      ]);
 
-    _notebookCards = results[0] as List<NotebookCard>;
-    _customTests = results[1] as List<AppTest>;
-    _attempts = results[2] as List<AppAttempt>;
-    _liveTests = results[3] as List<AppTest>;
-    _missions = await _missionService.getMissions();
+      _notebookCards = results[0] as List<NotebookCard>;
+      _customTests = results[1] as List<AppTest>;
+      _attempts = results[2] as List<AppAttempt>;
+      _liveTests = results[3] as List<AppTest>;
+      _missions = await _missionService.getMissions();
+    } catch (e) {
+      debugPrint('Initialization error: $e');
+    } finally {
+      // 2. De-prioritize cloud hydration to let UI render
+      _booting = false;
+      notifyListeners();
+    }
 
-    // 2. De-prioritize cloud hydration to let UI render
-    _booting = false;
-    notifyListeners();
-
-    await _notificationService.scheduleDailyReminder();
-    _backgroundInit();
+    try {
+      await _notificationService.scheduleDailyReminder();
+      _backgroundInit();
+    } catch (e) {
+      debugPrint('Post-init background tasks error: $e');
+    }
   }
 
   Future<void> _backgroundInit() async {

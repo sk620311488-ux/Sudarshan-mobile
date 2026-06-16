@@ -242,6 +242,25 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> sendPasswordResetEmail(String email) async {
+    _busy = true;
+    _message = '';
+    notifyListeners();
+    try {
+      await _authService.sendPasswordResetEmail(email);
+      _message = 'Reset link sent to $email.';
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> sendEmailVerification() async {
+    await _authService.sendEmailVerification();
+  }
+
+  bool get isEmailVerified => _authService.isEmailVerified();
+
   Future<void> continueAsGuest() async {
     _busy = true;
     _message = '';
@@ -655,6 +674,12 @@ class AppController extends ChangeNotifier {
     await _localStoreService.saveNotebookCards(_notebookCards);
     await _syncCloudProgressIfAvailable();
     await _syncPublicProfileIfAvailable();
+
+    // Check for milestones
+    if (_notebookCards.length > 0 && _notebookCards.length % 5 == 0) {
+      await _notificationService.showFlashcardMilestone(_notebookCards.length);
+    }
+
     notifyListeners();
   }
 
@@ -970,6 +995,12 @@ class AppController extends ChangeNotifier {
     _notebookCards = merged;
     await _localStoreService.saveNotebookCards(_notebookCards);
     await _syncPublicProfileIfAvailable();
+    
+    // Check for milestones: 5, 10, 15...
+    if (_notebookCards.length > 0 && _notebookCards.length % 5 == 0) {
+      await _notificationService.showFlashcardMilestone(_notebookCards.length);
+    }
+
     notifyListeners();
   }
 

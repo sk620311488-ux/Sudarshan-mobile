@@ -23,10 +23,11 @@ ${imageBase64 != null ? 'The student has uploaded a photo of their handwritten a
 Provide:
 1. A score from 0 to 100 based on accuracy, completeness, and clarity.
 2. Short, constructive feedback in Hindi or English (depending on the question's language).
-3. If an image is provided, transcribe the text briefly if possible and evaluate it.
+3. A detailed explanation of the correct answer and why the student got their score.
+4. If an image is provided, transcribe the text briefly if possible and evaluate it.
 
 Format your response as a valid JSON object:
-{"score": 85, "feedback": "Your explanation is good but you missed the keyword...", "transcription": "..." }
+{"score": 85, "feedback": "Your explanation is good...", "explanation": "The detailed explanation here...", "transcription": "..." }
 ''';
 
     try {
@@ -35,6 +36,7 @@ Format your response as a valid JSON object:
       return {
         'score': data['score'] ?? 0,
         'feedback': data['feedback'] ?? 'No feedback available.',
+        'explanation': data['explanation'] ?? '',
         'transcription': data['transcription'] ?? '',
       };
     } catch (e) {

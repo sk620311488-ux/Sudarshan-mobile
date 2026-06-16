@@ -7,9 +7,9 @@ class ExportService {
   Future<void> exportNotebookToPdf(List<NotebookCard> cards) async {
     final pdf = pw.Document();
 
-    // Use "Hind" font for perfect Hindi rendering (sanyutakshar) in PDF
-    final hindiFont = await PdfGoogleFonts.hindRegular();
-    final hindiFontBold = await PdfGoogleFonts.hindBold();
+    // Use "Noto Sans Devanagari" for robust Hindi rendering (sanyutakshar) in PDF
+    final hindiFont = await PdfGoogleFonts.notoSansDevanagariRegular();
+    final hindiFontBold = await PdfGoogleFonts.notoSansDevanagariBold();
 
     pdf.addPage(
       pw.MultiPage(

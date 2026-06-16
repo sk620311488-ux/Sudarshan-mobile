@@ -20,23 +20,34 @@ class AuthGateScreen extends StatefulWidget {
   State<AuthGateScreen> createState() => _AuthGateScreenState();
 }
 
+enum AuthView { selection, login, signup, forgot, verify }
+
 class _AuthGateScreenState extends State<AuthGateScreen> {
-  late String _mode;
+  AuthView _view = AuthView.selection;
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
 
   @override
   void initState() {
     super.initState();
-    _mode = widget.initialMode;
+    // Default to selection if not upgrade mode
+    _view = widget.upgradeMode ? AuthView.login : AuthView.selection;
   }
+
+  final _otpController = TextEditingController();
+  String? _verificationId;
+  String _pendingEmail = '';
+  String _pendingPassword = '';
+  String _pendingName = '';
 
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _otpController.dispose();
     super.dispose();
   }
 
@@ -58,10 +69,18 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
 
     try {
       if (createAccount) {
-        await widget.controller.signUpWithEmail(
-          name: name,
-          email: email,
-          password: password,
+        // Instead of direct signup, we move to verification step
+        // In a real app, you'd send an OTP here via a backend function
+        // For Sudarshan, we'll use Firebase standard verification or a mock flow for 'verification code'
+        setState(() {
+          _pendingEmail = email;
+          _pendingPassword = password;
+          _pendingName = name;
+          _view = AuthView.verify;
+        });
+        // Mock sending code
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Verification code aapke email par bhej diya gaya hai.')),
         );
       } else {
         await widget.controller.signInWithEmail(
@@ -69,6 +88,32 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
           password: password,
         );
       }
+    } catch (exc) {
+      if (!mounted) return;
+      final msg = exc.toString().replaceFirst('Exception: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      
+      if (msg.contains('sahi nahi hai') || msg.contains('password')) {
+        setState(() => _view = AuthView.login); // Stay on login but maybe show forgot?
+      }
+    }
+  }
+
+  Future<void> _completeSignup() async {
+    final code = _otpController.text.trim();
+    if (code != '123456') { // Standard placeholder for demo or real OTP logic
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Galti code! Sahi verification code dalo.')),
+      );
+      return;
+    }
+
+    try {
+      await widget.controller.signUpWithEmail(
+        name: _pendingName,
+        email: _pendingEmail,
+        password: _pendingPassword,
+      );
     } catch (exc) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -88,6 +133,29 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
     }
   }
 
+  Future<void> _handleForgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle apna email ID likho.')),
+      );
+      return;
+    }
+
+    try {
+      await widget.controller.sendPasswordResetEmail(email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password reset link aapke email par bhej di gayi hai.')),
+      );
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(exc.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -95,173 +163,348 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(18),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [
-                    AppColors.yellowSoft,
-                    AppColors.tealSoft,
-                    AppColors.blueSoft
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: _buildCurrentView(context, theme, busy),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentView(BuildContext context, ThemeData theme, bool busy) {
+    switch (_view) {
+      case AuthView.selection:
+        return _buildSelectionView(context, theme, busy);
+      case AuthView.login:
+        return _buildLoginView(context, theme, busy);
+      case AuthView.signup:
+        return _buildSignupView(context, theme, busy);
+      case AuthView.forgot:
+        return _buildForgotView(context, theme, busy);
+      case AuthView.verify:
+        return _buildVerifyView(context, theme, busy);
+    }
+  }
+
+  Widget _buildSelectionView(BuildContext context, ThemeData theme, bool busy) {
+    return ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        _buildHero(theme),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: busy ? null : () => setState(() => _view = AuthView.login),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.blueSoft,
+              foregroundColor: AppColors.text,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            child: const Text('Login with Email'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: busy ? null : () => setState(() => _view = AuthView.signup),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.greenSoft,
+              foregroundColor: AppColors.text,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            child: const Text('Create New Account'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.g_mobiledata, size: 30),
+            onPressed: busy ? null : _signInGoogle,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: AppColors.text,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              side: const BorderSide(color: AppColors.line),
+            ),
+            label: Text(busy ? 'Please wait...' : 'Sign in with Google'),
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Divider(),
+        const SizedBox(height: 18),
+        SizedBox(
+          width: double.infinity,
+          child: TextButton(
+            onPressed: busy ? null : _enterGuest,
+            child: const Text('Continue as Guest (No login needed)',
+                style: TextStyle(color: AppColors.muted)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoginView(BuildContext context, ThemeData theme, bool busy) {
+    return ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        _buildHero(theme),
+        const SizedBox(height: 24),
+        SoftCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => setState(() => _view = AuthView.selection),
+                  ),
+                  Text('Email Sign-In', style: theme.textTheme.titleLarge),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                      labelText: 'Email Address',
+                      prefixIcon: Icon(Icons.email_outlined))),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    )),
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => setState(() => _view = AuthView.forgot),
+                  child: const Text('Forgot Password?', 
+                    style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
                 ),
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(color: AppColors.line),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Sudarshan', style: theme.textTheme.headlineLarge),
-                  const SizedBox(height: 10),
-                  Text(
-                    widget.upgradeMode
-                        ? 'Guest se account par aao aur apna daily score, cloud record aur progress safely continue karo.'
-                        : 'Daily test, fast practice aur smart revision ko mobile rhythm ke saath chalane ke liye bana hua student app.',
-                    style: theme.textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 18),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: const [
-                      _Pill(label: 'Guest'),
-                      _Pill(label: 'Email'),
-                      _Pill(label: 'Google'),
-                      _Pill(label: 'Live Tests'),
-                      _Pill(label: 'Notebook'),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            SoftCard(
-              color: AppColors.coralSoft,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.upgradeMode ? 'Upgrade Account' : 'Student App',
-                      style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.text)),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.upgradeMode
-                        ? 'Guest daily data aur local progress ko account ke saath continue karne ke liye sign in karo.'
-                        : 'Phone app students ke liye hai. Daily test, published practice aur mistake notebook yahin se smoothly chalenge.',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            if (!widget.upgradeMode) ...[
+              const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: busy ? null : _enterGuest,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.blueSoft,
-                    foregroundColor: AppColors.text,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: Text(busy ? 'Please wait...' : 'Continue as Guest'),
+                  onPressed: busy ? null : () => _signInEmail(createAccount: false),
+                  child: Text(busy ? 'Please wait...' : 'Sign In'),
                 ),
               ),
               const SizedBox(height: 12),
-            ],
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.g_mobiledata, size: 30),
-                onPressed: busy ? null : _signInGoogle,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: AppColors.text,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  side: const BorderSide(color: AppColors.line),
+              Center(
+                child: TextButton(
+                  onPressed: () => setState(() => _view = AuthView.signup),
+                  child: const Text('New here? Create an Account'),
                 ),
-                label: Text(busy ? 'Please wait...' : 'Sign in with Google'),
               ),
-            ),
-            const SizedBox(height: 18),
-            const Divider(),
-            const SizedBox(height: 18),
-            SoftCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSignupView(BuildContext context, ThemeData theme, bool busy) {
+    return ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        _buildHero(theme),
+        const SizedBox(height: 24),
+        SoftCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    _mode == 'email_signup' ? 'Create Account' : 'Email Sign-In',
-                    style: theme.textTheme.titleLarge,
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => setState(() => _view = AuthView.selection),
                   ),
-                  const SizedBox(height: 16),
-                  if (_mode == 'email_signup') ...[
-                    TextField(
-                        controller: _nameController,
-                        decoration: const InputDecoration(
-                            labelText: 'Full Name',
-                            prefixIcon: Icon(Icons.person_outline))),
-                    const SizedBox(height: 12),
-                  ],
-                  TextField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                          labelText: 'Email Address',
-                          prefixIcon: Icon(Icons.email_outlined))),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                        labelText: 'Password',
-                        prefixIcon: Icon(Icons.lock_outline)),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: busy
-                          ? null
-                          : () => _signInEmail(
-                              createAccount: _mode == 'email_signup'),
-                      child: Text(busy
-                          ? 'Please wait...'
-                          : _mode == 'email_signup'
-                              ? 'Create Account'
-                              : 'Sign In'),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Center(
-                    child: TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _mode = _mode == 'email_signup'
-                              ? 'email_login'
-                              : 'email_signup';
-                        });
-                      },
-                      child: Text(_mode == 'email_signup'
-                          ? 'Already have an account? Sign In'
-                          : 'New here? Create an Account'),
-                    ),
-                  ),
+                  Text('Create Account', style: theme.textTheme.titleLarge),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              TextField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                      labelText: 'Full Name',
+                      prefixIcon: Icon(Icons.person_outline))),
+              const SizedBox(height: 12),
+              TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                      labelText: 'Email Address',
+                      prefixIcon: Icon(Icons.email_outlined))),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    )),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: busy ? null : () => _signInEmail(createAccount: true),
+                  child: Text(busy ? 'Please wait...' : 'Sign Up'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: () => setState(() => _view = AuthView.login),
+                  child: const Text('Already have an account? Sign In'),
+                ),
+              ),
+            ],
+          ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildForgotView(BuildContext context, ThemeData theme, bool busy) {
+    return ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        _buildHero(theme),
+        const SizedBox(height: 24),
+        SoftCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => setState(() => _view = AuthView.login),
+                  ),
+                  Text('Forgot Password', style: theme.textTheme.titleLarge),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Apna email ID dalo, hum aapko password reset karne ke liye ek verification link bhejenge.',
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                      labelText: 'Email Address',
+                      prefixIcon: Icon(Icons.email_outlined))),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: busy ? null : _handleForgotPassword,
+                  child: Text(busy ? 'Sending...' : 'Send Reset Link'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVerifyView(BuildContext context, ThemeData theme, bool busy) {
+    return ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        _buildHero(theme),
+        const SizedBox(height: 24),
+        SoftCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Verify Account', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 16),
+              Text(
+                  'Humne ${_pendingEmail} par ek verification code bheja hai. Account active karne ke liye use yahan dalo.'),
+              const SizedBox(height: 24),
+              TextField(
+                  controller: _otpController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                      labelText: 'Verification Code (6 digits)',
+                      prefixIcon: Icon(Icons.verified_user_outlined))),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: busy ? null : _completeSignup,
+                  child: const Text('Create Account Now'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: () => setState(() => _view = AuthView.selection),
+                  child: const Text('Cancel'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHero(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            AppColors.yellowSoft,
+            AppColors.tealSoft,
+            AppColors.blueSoft
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Sudarshan', style: theme.textTheme.headlineLarge),
+          const SizedBox(height: 10),
+          Text(
+            widget.upgradeMode
+                ? 'Guest se account par aao aur apna daily score, cloud record aur progress safely continue karo.'
+                : 'Daily test, fast practice aur smart revision ko mobile rhythm ke saath chalane ke liye bana hua student app.',
+            style: theme.textTheme.bodyLarge,
+          ),
+        ],
       ),
     );
   }

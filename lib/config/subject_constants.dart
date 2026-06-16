@@ -9,11 +9,15 @@ class SubjectConstants {
     'हिंदी व्याकरण',
     'संस्कृत व्याकरण',
     'English Grammar',
+    'History',
+    'Geography',
+    'Civics',
+    'Economics',
   ];
 
   static const Map<String, List<String>> subSubjects = {
-    'Science': ['भौतिकी', 'रसायन शास्त्र', 'जीव विज्ञान'],
-    'SST': ['इतिहास', 'भूगोल', 'नागरिक शास्त्र', 'अर्थशास्त्र'],
+    'Science': ['भौतिकी', 'रसायन शास्त्र', 'जीव विज्ञान', 'Physics', 'Chemistry', 'Biology'],
+    'SST': ['इतिहास', 'भूगोल', 'नागरिक शास्त्र', 'अर्थशास्त्र', 'History', 'Geography', 'Civics', 'Economics'],
   };
 
   static const Map<String, List<String>> chapters = {

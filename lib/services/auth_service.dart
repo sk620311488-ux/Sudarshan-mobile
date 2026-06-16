@@ -210,6 +210,26 @@ class AuthService {
     );
   }
 
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email.trim());
+    } on FirebaseAuthException catch (error) {
+      throw Exception(_mapFirebaseError(error.code));
+    }
+  }
+
+  Future<void> sendEmailVerification() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && !user.emailVerified) {
+      await user.sendEmailVerification();
+    }
+  }
+
+  bool isEmailVerified() {
+    final user = FirebaseAuth.instance.currentUser;
+    return user?.emailVerified ?? false;
+  }
+
   String _mapFirebaseError(String code) {
     switch (code) {
       case 'email-already-in-use':

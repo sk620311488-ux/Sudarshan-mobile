@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'dart:convert';
+import 'dart:io';
 
 import '../models/app_models.dart';
 import '../services/anki_export_service.dart';
@@ -135,6 +139,249 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class DashboardPage extends StatelessWidget {
   const DashboardPage({
     super.key,
@@ -209,6 +456,15 @@ class DashboardPage extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Analysis failed: $e')));
       }
     }
+  }
+
+  void _showAiSubjectiveChecker(BuildContext context, AppController controller) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _AiSubjectiveCheckerSheet(controller: controller),
+    );
   }
 
   @override
@@ -355,7 +611,29 @@ class DashboardPage extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 18),
+        SoftCard(
+          color: AppColors.tealSoft,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Sudarshan AI Subjective Checker', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 8),
+              const Text('Apne answer ko check karwao: Type karo, Bolo (Voice), ya Photo upload karo.'),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.psychology),
+                onPressed: () => _showAiSubjectiveChecker(context, controller),
+                label: const Text('Start AI Checking'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.teal,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -480,6 +758,249 @@ class DashboardPage extends StatelessWidget {
   }
 }
 
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class TestsPage extends StatefulWidget {
   const TestsPage({super.key, required this.controller});
 
@@ -514,7 +1035,9 @@ class _TestsPageState extends State<TestsPage> {
 
     if (_selectedSubSubjectFolder != null) {
       final subSubjectTests = allTests
-          .where((test) => test.subject == _selectedSubSubjectFolder)
+          .where((test) =>
+              test.subject == _selectedSubSubjectFolder ||
+              test.book == _selectedSubSubjectFolder)
           .toList();
       return _buildChapterView(subSubjectTests, theme, isSubSubject: true);
     }
@@ -727,6 +1250,249 @@ class _TestsPageState extends State<TestsPage> {
   }
 }
 
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class NotebookPage extends StatefulWidget {
   const NotebookPage({super.key, required this.controller});
 
@@ -929,6 +1695,249 @@ class _NotebookPageState extends State<NotebookPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1243,6 +2252,249 @@ Download Sudarshan Now.
   }
 }
 
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DailyMissionsCard extends StatelessWidget {
   const _DailyMissionsCard({required this.controller});
   final AppController controller;
@@ -1305,6 +2557,249 @@ class _DailyMissionsCard extends StatelessWidget {
   }
 }
 
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ProfileStat extends StatelessWidget {
   const _ProfileStat({required this.label, required this.value});
   final String label;
@@ -1318,6 +2813,249 @@ class _ProfileStat extends StatelessWidget {
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         Text(label, style: const TextStyle(color: AppColors.muted)),
       ],
+    );
+  }
+}
+
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1428,6 +3166,249 @@ class _NotebookCardItem extends StatelessWidget {
   }
 }
 
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AiDoubtSolverButton extends StatefulWidget {
   const _AiDoubtSolverButton({
     required this.controller,
@@ -1514,6 +3495,249 @@ class _AiDoubtSolverButtonState extends State<_AiDoubtSolverButton> {
   }
 }
 
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _StatTile extends StatelessWidget {
   const _StatTile({
     required this.title,
@@ -1541,6 +3765,249 @@ class _StatTile extends StatelessWidget {
   }
 }
 
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MiniTag extends StatelessWidget {
   const _MiniTag({required this.label, required this.color});
 
@@ -1562,6 +4029,249 @@ class _MiniTag extends StatelessWidget {
             fontSize: 12,
             fontWeight: FontWeight.w700,
             color: Theme.of(context).colorScheme.onSurface),
+      ),
+    );
+  }
+}
+
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxCover.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

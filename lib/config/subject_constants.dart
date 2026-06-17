@@ -1,35 +1,57 @@
 class SubjectConstants {
+  static const Map<String, String> subjectAliases = {
+    'Science': 'विज्ञान',
+    'SST': 'सामाजिक विज्ञान',
+    'Math': 'गणित',
+    'Mathematics': 'गणित',
+    'Hindi': 'हिंदी',
+    'Sanskrit': 'संस्कृत',
+    'English': 'अंग्रेजी',
+    'English Grammar': 'अंग्रेजी व्याकरण',
+    'Hindi Grammar': 'हिंदी व्याकरण',
+    'Sanskrit Grammar': 'संस्कृत व्याकरण',
+    'History': 'इतिहास',
+    'Geography': 'भूगोल',
+    'Civics': 'नागरिक शास्त्र',
+    'Economics': 'अर्थशास्त्र',
+  };
+
+  static String normalizeSubject(String value) {
+    final trimmed = value.trim();
+    return subjectAliases[trimmed] ?? trimmed;
+  }
+
   static const List<String> subjects = [
-    'Science',
-    'SST',
+    'विज्ञान',
+    'सामाजिक विज्ञान',
     'गणित',
     'हिंदी',
     'संस्कृत',
     'अंग्रेजी',
     'हिंदी व्याकरण',
     'संस्कृत व्याकरण',
-    'English Grammar',
-    'History',
-    'Geography',
-    'Civics',
-    'Economics',
+    'अंग्रेजी व्याकरण',
+    'इतिहास',
+    'भूगोल',
+    'नागरिक शास्त्र',
+    'अर्थशास्त्र',
   ];
 
   static const Map<String, List<String>> subSubjects = {
-    'Science': ['भौतिकी', 'रसायन शास्त्र', 'जीव विज्ञान', 'Physics', 'Chemistry', 'Biology'],
-    'SST': ['इतिहास', 'भूगोल', 'नागरिक शास्त्र', 'अर्थशास्त्र', 'History', 'Geography', 'Civics', 'Economics'],
+    'विज्ञान': ['भौतिकी', 'रसायन शास्त्र', 'जीव विज्ञान'],
+    'सामाजिक विज्ञान': ['इतिहास', 'भूगोल', 'नागरिक शास्त्र', 'अर्थशास्त्र'],
   };
 
   static const Map<String, List<String>> chapters = {
     'भौतिकी': [
-      'प्रकाश-परावर्तन तथा अपवर्तन',
+      'प्रकाश - परावर्तन तथा अपवर्तन',
       'मानव नेत्र तथा रंगबिरंगा संसार',
       'विद्युत',
       'विद्युत धारा के चुंबकीय प्रभाव',
       'ऊर्जा के स्रोत',
     ],
     'रसायन शास्त्र': [
-      'रासायनिक अभिक्रियाएं एवं समीकरण',
+      'रासायनिक अभिक्रियाएँ एवं समीकरण',
       'अम्ल, क्षारक एवं लवण',
       'धातु एवं अधातु',
       'कार्बन एवं उसके यौगिक',
@@ -48,7 +70,7 @@ class SubjectConstants {
       'बहुपद',
       'दो चर वाले रैखिक समीकरण युग्म',
       'द्विघात समीकरण',
-      'समांतर श्रेणियाँ',
+      'समान्तर श्रेणियाँ',
       'त्रिभुज',
       'निर्देशांक ज्यामिति',
       'त्रिकोणमिति का परिचय',
@@ -76,16 +98,16 @@ class SubjectConstants {
       'मुहावरे एवं लोकोक्तियाँ',
     ],
     'संस्कृत व्याकरण': [
-      'वर्ण प्रकरणम्',
-      'सन्धि प्रकरणम्',
+      'वर्ण प्रककरणम्',
+      'सन्धि प्रककरणम्',
       'शब्द रूपाणि',
       'धातु रूपाणि',
-      'कारक प्रकरणम्',
-      'प्रत्यय प्रकरणम्',
-      'समास प्रकरणम्',
+      'कारक प्रककरणम्',
+      'प्रत्यय प्रककरणम्',
+      'समास प्रककरणम्',
       'अनुवाद कौशलम्',
     ],
-    'English Grammar': [
+    'अंग्रेजी व्याकरण': [
       'Tense',
       'Voice',
       'Narration',
@@ -97,6 +119,5 @@ class SubjectConstants {
       'Conjunction',
       'Transformation of Sentences',
     ],
-    // Add more chapters as needed for other subjects
   };
 }

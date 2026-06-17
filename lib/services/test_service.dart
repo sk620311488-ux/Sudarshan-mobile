@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/mobile_config.dart';
+import '../config/subject_constants.dart';
 import '../models/app_models.dart';
 
 class TestService {
@@ -178,11 +179,11 @@ class TestService {
       {
         'id': id,
         'title': raw['name'] ?? raw['title'] ?? 'Untitled Test',
-        'subject': raw['subject'] ?? 'General',
+        'subject': SubjectConstants.normalizeSubject((raw['subject'] ?? 'General').toString()),
         'chapter': raw['chapter_name'] ?? raw['chapter'] ?? '',
         'level': raw['level'] ?? 'Level 1',
         'timeLimitMin': raw['time_limit_min'] ?? raw['timeLimitMin'] ?? 0,
-        'book': raw['book'] ?? '',
+        'book': SubjectConstants.normalizeSubject((raw['book'] ?? '').toString()),
         'testType': raw['test_type'] ?? 'MCQ',
         'pyqYear': raw['pyq_year'] ?? '',
         'isPublished': forcePublished || raw['visibility'] == 'public',
@@ -207,15 +208,13 @@ class TestService {
     }
 
     for (final question in test.questions) {
-      if (question.question.trim().isEmpty || question.topic.trim().isEmpty) {
+      if (question.question.trim().isEmpty) {
         return false;
       }
       if (question.isObjective) {
-        if (question.options.length < 2 || question.answerIndex < 0) {
+        if (question.options.length < 2) {
           return false;
         }
-      } else if (question.answerText.trim().isEmpty) {
-        return false;
       }
     }
 

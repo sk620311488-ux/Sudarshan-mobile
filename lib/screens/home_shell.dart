@@ -790,23 +790,25 @@ class _TestsPageState extends State<TestsPage> {
     }
 
     if (_selectedSubSubjectFolder != null) {
+      final selectedSub = SubjectConstants.normalizeSubject(_selectedSubSubjectFolder!);
       final subSubjectTests = allTests
           .where((test) =>
-              test.subject == _selectedSubSubjectFolder ||
-              test.book == _selectedSubSubjectFolder)
+              SubjectConstants.normalizeSubject(test.subject) == selectedSub ||
+              SubjectConstants.normalizeSubject(test.book) == selectedSub)
           .toList();
       return _buildChapterView(subSubjectTests, theme, isSubSubject: true);
     }
 
     if (_selectedSubjectFolder != null) {
       // Check if it has sub-subjects (like Science/SST)
-      final subSubs = SubjectConstants.subSubjects[_selectedSubjectFolder];
+      final selectedSubject = SubjectConstants.normalizeSubject(_selectedSubjectFolder!);
+      final subSubs = SubjectConstants.subSubjects[selectedSubject];
       if (subSubs != null) {
-        return _buildSubSubjectView(_selectedSubjectFolder!, subSubs, theme);
+        return _buildSubSubjectView(selectedSubject, subSubs, theme);
       }
 
       final subjectTests = allTests
-          .where((test) => test.subject == _selectedSubjectFolder)
+          .where((test) => SubjectConstants.normalizeSubject(test.subject) == selectedSubject)
           .toList();
       return _buildChapterView(subjectTests, theme);
     }
@@ -1026,12 +1028,16 @@ class _NotebookPageState extends State<NotebookPage> {
     final allCards = widget.controller.notebookCards;
 
     // Extract subjects for filtering
-    final subjects = ['All', ...allCards.map((e) => e.subject).toSet()];
+    final subjects = [
+      'All',
+      ...allCards.map((e) => SubjectConstants.normalizeSubject(e.subject)).toSet(),
+    ];
 
     // Apply filtering
     final filteredCards = allCards.where((card) {
       final matchesSubject =
-          _selectedSubject == 'All' || card.subject == _selectedSubject;
+          _selectedSubject == 'All' ||
+              SubjectConstants.normalizeSubject(card.subject) == _selectedSubject;
       final matchesSearch =
           card.question.toLowerCase().contains(_searchQuery.toLowerCase()) ||
               card.answer.toLowerCase().contains(_searchQuery.toLowerCase()) ||

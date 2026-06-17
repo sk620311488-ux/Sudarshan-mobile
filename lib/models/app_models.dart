@@ -45,12 +45,25 @@ class AppQuestion {
             .where((item) => item.trim().isNotEmpty)
             .toList()
         : <String>[];
+    final correctIndex = int.tryParse(
+            (json['answer_index'] ?? json['answerIndex'] ?? '').toString()) ??
+        -1;
+    String correct = (json['correct'] ??
+            json['model_answer'] ??
+            json['answer'] ??
+            json['correct_answer'] ??
+            json['answerText'] ??
+            '')
+        .toString();
+    if (correct.trim().isEmpty && correctIndex >= 0 && correctIndex < options.length) {
+      correct = options[correctIndex];
+    }
     return AppQuestion(
       question: (json['question'] ?? '').toString(),
       options: options,
-      correct: (json['correct'] ?? json['model_answer'] ?? '').toString(),
+      correct: correct,
       topic: (json['topic'] ?? 'general').toString(),
-      questionType: (json['question_type'] ?? 'MCQ').toString(),
+      questionType: (json['question_type'] ?? json['questionType'] ?? 'MCQ').toString(),
       explanation: (json['explanation'] ?? '').toString(),
     );
   }

@@ -6,7 +6,6 @@ import '../models/app_models.dart';
 class AiService {
   final String _baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
   final String _apiKey = MobileFirebaseConfig.groqApiKey;
-  final String _visionModel = 'llama-3.2-11b-vision-preview';
 
   Future<Map<String, dynamic>> evaluateSubjectiveAnswer({
     required String question,
@@ -18,7 +17,8 @@ class AiService {
 Evaluate the following student's answer against the model answer for a subjective question.
 Question: "$question"
 Model Answer: "$modelAnswer"
-${imageBase64 != null ? 'The student has uploaded a photo of their handwritten answer.' : 'Student Answer: "$studentAnswer"'}
+Student Answer: "$studentAnswer"
+${imageBase64 != null ? 'The student also attached a handwritten photo. Use it only as context; grade from the answer text.' : ''}
 
 Provide:
 1. A score from 0 to 100 based on accuracy, completeness, and clarity.
@@ -31,7 +31,7 @@ Format your response as a valid JSON object:
 ''';
 
     try {
-      final response = await _postToGroq(prompt, imageBase64: imageBase64);
+      final response = await _postToGroq(prompt);
       final data = jsonDecode(response);
       return {
         'score': data['score'] ?? 0,
@@ -89,19 +89,8 @@ Make the explanation helpful and encouraging. Keep it under 100 words.
     }
   }
 
-  Future<String> _postToGroq(String prompt, {String? imageBase64}) async {
-    final bool isVision = imageBase64 != null;
-    final model = isVision ? _visionModel : MobileFirebaseConfig.groqModel;
-
-    final List<dynamic> userMessageContent = [];
-    userMessageContent.add({'type': 'text', 'text': prompt});
-
-    if (isVision) {
-      userMessageContent.add({
-        'type': 'image_url',
-        'image_url': {'url': 'data:image/jpeg;base64,$imageBase64'}
-      });
-    }
+  Future<String> _postToGroq(String prompt) async {
+    final model = MobileFirebaseConfig.groqModel;
 
     final response = await http.post(
       Uri.parse(_baseUrl),
@@ -113,7 +102,7 @@ Make the explanation helpful and encouraging. Keep it under 100 words.
         'model': model,
         'messages': [
           {'role': 'system', 'content': 'You are Sudarshan AI, a helpful and precise educational assistant. Always respond in a clear, encouraging manner.'},
-          {'role': 'user', 'content': isVision ? userMessageContent : prompt},
+          {'role': 'user', 'content': prompt},
         ],
         'temperature': 0.7,
         'response_format': prompt.contains('JSON') ? {'type': 'json_object'} : null,

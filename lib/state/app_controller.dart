@@ -676,7 +676,7 @@ class AppController extends ChangeNotifier {
     await _syncPublicProfileIfAvailable();
 
     // Check for milestones
-    if (_notebookCards.length > 0 && _notebookCards.length % 5 == 0) {
+    if (_notebookCards.isNotEmpty && _notebookCards.length % 5 == 0) {
       await _notificationService.showFlashcardMilestone(_notebookCards.length);
     }
 
@@ -997,7 +997,7 @@ class AppController extends ChangeNotifier {
     await _syncPublicProfileIfAvailable();
     
     // Check for milestones: 5, 10, 15...
-    if (_notebookCards.length > 0 && _notebookCards.length % 5 == 0) {
+    if (_notebookCards.isNotEmpty && _notebookCards.length % 5 == 0) {
       await _notificationService.showFlashcardMilestone(_notebookCards.length);
     }
 
@@ -1175,11 +1175,13 @@ class AppController extends ChangeNotifier {
     required String question,
     required String modelAnswer,
     required String studentAnswer,
+    String? imageBase64,
   }) async {
     return _aiService.evaluateSubjectiveAnswer(
       question: question,
       modelAnswer: modelAnswer,
       studentAnswer: studentAnswer,
+      imageBase64: imageBase64,
     );
   }
 

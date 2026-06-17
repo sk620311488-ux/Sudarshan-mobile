@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'test_service.dart';
 import 'local_store_service.dart';
 import 'notification_service.dart';
-import '../models/app_models.dart';
 
 class SyncService {
   final TestService _testService = TestService();

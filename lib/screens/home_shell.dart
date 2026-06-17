@@ -5,7 +5,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'dart:convert';
-import 'dart:typed_data';
 
 import '../models/app_models.dart';
 import '../services/anki_export_service.dart';
@@ -168,8 +167,8 @@ class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
   void _listen() async {
     if (!_isListening) {
       bool available = await _speech.initialize(
-        onStatus: (val) => print('onStatus: $val'),
-        onError: (val) => print('onError: $val'),
+        onStatus: (val) => debugPrint('onStatus: $val'),
+        onError: (val) => debugPrint('onError: $val'),
       );
       if (available) {
         setState(() => _isListening = true);

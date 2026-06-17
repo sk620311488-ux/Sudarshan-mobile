@@ -37,7 +37,6 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
   }
 
   final _otpController = TextEditingController();
-  String? _verificationId;
   String _pendingEmail = '';
   String _pendingPassword = '';
   String _pendingName = '';
@@ -447,7 +446,7 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
               Text('Verify Account', style: theme.textTheme.titleLarge),
               const SizedBox(height: 16),
               Text(
-                  'Humne ${_pendingEmail} par ek verification code bheja hai. Account active karne ke liye use yahan dalo.'),
+                  'Humne $_pendingEmail par ek verification code bheja hai. Account active karne ke liye use yahan dalo.'),
               const SizedBox(height: 24),
               TextField(
                   controller: _otpController,
@@ -505,29 +504,6 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
             style: theme.textTheme.bodyLarge,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.white.withValues(alpha: 0.74),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Text(
-        label,
-        style:
-            const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text),
       ),
     );
   }

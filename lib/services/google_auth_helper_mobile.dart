@@ -4,23 +4,22 @@ import '../config/mobile_config.dart';
 import 'google_auth_helper.dart';
 
 class GoogleAuthHelperImpl implements GoogleAuthHelper {
-  final _googleSignIn = GoogleSignIn(
-    serverClientId: MobileFirebaseConfig.googleWebClientId,
-  );
+  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
 
   @override
   Future<UserCredential?> signIn() async {
-    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-    if (googleUser == null) return null;
+    await _googleSignIn.initialize(
+      serverClientId: MobileFirebaseConfig.googleWebClientId,
+    );
 
-    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+    final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
+    final GoogleSignInAuthentication googleAuth = googleUser.authentication;
     
     final AuthCredential credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
       idToken: googleAuth.idToken,
     );
 
-    return await FirebaseAuth.instance.signInWithCredential(credential);
+    return FirebaseAuth.instance.signInWithCredential(credential);
   }
 
   @override

@@ -37,10 +37,7 @@ Future<void> main() async {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
     // Initialize Workmanager
-    await Workmanager().initialize(
-      callbackDispatcher,
-      isInDebugMode: false,
-    );
+    await Workmanager().initialize(callbackDispatcher);
 
     // Register 4 AM Sync Task
     // Note: We schedule it to run every 24 hours. 

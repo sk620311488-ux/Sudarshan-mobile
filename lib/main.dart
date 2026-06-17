@@ -9,6 +9,7 @@ import 'firebase_options.dart';
 
 @pragma('vm:entry-point')
 void callbackDispatcher() {
+  WidgetsFlutterBinding.ensureInitialized();
   Workmanager().executeTask((task, inputData) async {
     if (task == "dailySyncTask") {
       final syncService = SyncService();
@@ -18,7 +19,9 @@ void callbackDispatcher() {
   });
 }
 
+@pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   debugPrint("Handling a background message: ${message.messageId}");
 }

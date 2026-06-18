@@ -5,7 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show File;
 
 import '../models/app_models.dart';
 import '../services/anki_export_service.dart';
@@ -1075,6 +1075,295 @@ class _NotebookCardItem extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// ProfilePage — the 4th tab of HomeShell
+// ---------------------------------------------------------------------------
+
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key, required this.controller});
+  final AppController controller;
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  AppController get c => widget.controller;
+
+  void _showEditIdDialog() {
+    final ctrl = TextEditingController(text: c.session?.customStudentId ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Student ID Set Karo'),
+        content: TextField(
+          controller: ctrl,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'Student ID (max 12 chars)',
+            border: OutlineInputBorder(),
+          ),
+          maxLength: 12,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await c.updateStudentId(ctrl.text.trim().toUpperCase());
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Student ID updated!')),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final session = c.session;
+
+    if (session == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.person_off_outlined, size: 64, color: AppColors.muted),
+            const SizedBox(height: 16),
+            const Text('Koi account nahi mila.', style: TextStyle(color: AppColors.muted)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => AuthGateScreen(controller: c)),
+              ),
+              child: const Text('Sign In'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final level = c.userLevel;
+    final progress = c.levelProgress;
+    final nextExp = c.nextLevelExp;
+    final achievements = c.achievements;
+
+    return ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        // ── Avatar + Name ──────────────────────────────────────
+        SoftCard(
+          color: AppColors.blueSoft,
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: AppColors.accent,
+                child: Text(
+                  _initials(session.name),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 22,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                session.name.trim().isEmpty ? 'Student' : session.name,
+                style: theme.textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'ID: ${session.studentId}',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  if (!session.isGuest) ...[
+                    const SizedBox(width: 6),
+                    GestureDetector(
+                      onTap: _showEditIdDialog,
+                      child: const Icon(Icons.edit_outlined,
+                          size: 16, color: AppColors.accent),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(c.rankTitle, style: theme.textTheme.titleMedium),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // ── Stats row ──────────────────────────────────────────
+        Row(
+          children: [
+            Expanded(
+              child: _ProfileStat(
+                label: 'Level',
+                value: '$level',
+              ),
+            ),
+            Expanded(
+              child: _ProfileStat(
+                label: 'Total EXP',
+                value: '${c.totalExp}',
+              ),
+            ),
+            Expanded(
+              child: _ProfileStat(
+                label: 'Streak',
+                value: '${c.dailyStreak}',
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 16),
+
+        // ── Level progress bar ─────────────────────────────────
+        SoftCard(
+          color: AppColors.greenSoft,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Level $level Progress',
+                      style: theme.textTheme.titleMedium),
+                  Text('${c.totalExp} / $nextExp EXP',
+                      style: theme.textTheme.bodySmall),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 10,
+                  backgroundColor: Colors.white,
+                  valueColor:
+                      const AlwaysStoppedAnimation<Color>(AppColors.accent),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // ── Achievements ───────────────────────────────────────
+        Text('Achievements', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 10),
+        if (achievements.isEmpty)
+          const SoftCard(
+            child: Text('Abhi tak koi achievement nahi. Tests solve karte raho!'),
+          )
+        else
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: achievements
+                .map(
+                  (a) => Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: theme.cardColor,
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(color: theme.dividerColor),
+                    ),
+                    child: Text(a,
+                        style:
+                            const TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                )
+                .toList(),
+          ),
+
+        const SizedBox(height: 24),
+
+        // ── Sign-out ───────────────────────────────────────────
+        if (!session.isGuest)
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.logout, color: Colors.red),
+              label: const Text('Sign Out',
+                  style: TextStyle(color: Colors.red)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.red),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Sign Out?'),
+                    content: const Text(
+                        'Aap sign out karna chahte hain?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red),
+                        child: const Text('Sign Out',
+                            style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true && mounted) {
+                  await c.signOut();
+                }
+              },
+            ),
+          ),
+
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return 'S';
+    if (parts.length == 1) {
+      return parts.first.substring(0, 1).toUpperCase();
+    }
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
+        .toUpperCase();
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 class _ProfileStat extends StatelessWidget {
   const _ProfileStat({required this.label, required this.value});

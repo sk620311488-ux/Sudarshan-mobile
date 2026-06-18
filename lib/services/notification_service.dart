@@ -1,11 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
+// firebase_messaging is Android/iOS only — only import on non-web, non-Windows.
+// We use a conditional import so the symbol is never resolved on desktop.
+import 'notification_service_stub.dart'
+    if (dart.library.io) 'notification_service_mobile.dart' as fcm_helper;
 
 class NotificationService {
   // Use dynamic to avoid type checking issues on Web stubs
   final dynamic _plugin = kIsWeb ? null : FlutterLocalNotificationsPlugin();
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
   bool _initialized = false;
 
   Future<void> initialize() async {
@@ -22,23 +24,9 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
 
-    // FCM Permissions
-    await _fcm.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
-    // Listen for foreground FCM messages
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (message.notification != null) {
-        _showSimpleNotification(
-          title: message.notification!.title ?? 'New Alert',
-          body: message.notification!.body ?? '',
-          id: 2001,
-        );
-      }
-    });
+    // FCM Permissions + foreground listener — delegated to mobile helper
+    // so that firebase_messaging symbols never reach the Windows linker.
+    await fcm_helper.setupFcm(_showSimpleNotification);
 
     _initialized = true;
   }
@@ -96,10 +84,10 @@ class NotificationService {
     }
     
     await _plugin.show(
-      id: 1001,
-      title: title,
-      body: body,
-      notificationDetails: const NotificationDetails(
+      1001,
+      title,
+      body,
+      const NotificationDetails(
         android: AndroidNotificationDetails(
           'daily_test_channel',
           'Daily Test Alerts',
@@ -118,10 +106,10 @@ class NotificationService {
       return;
     }
     await _plugin.show(
-      id: 1002,
-      title: 'Leaderboard update',
-      body: 'Someone has surpassed you. Your daily rank is now #$newRank.',
-      notificationDetails: const NotificationDetails(
+      1002,
+      'Leaderboard update',
+      'Someone has surpassed you. Your daily rank is now #$newRank.',
+      const NotificationDetails(
         android: AndroidNotificationDetails(
           'leaderboard_channel',
           'Leaderboard Alerts',
@@ -137,11 +125,11 @@ class NotificationService {
     if (!_initialized || kIsWeb) return;
 
     await _plugin.periodicallyShow(
-      id: 1003,
-      title: 'Sudarshan: Time to study!',
-      body: 'Don\'t let your streak break. Solve a quick test now.',
-      repeatInterval: RepeatInterval.daily,
-      notificationDetails: const NotificationDetails(
+      1003,
+      'Sudarshan: Time to study!',
+      'Don\'t let your streak break. Solve a quick test now.',
+      RepeatInterval.daily,
+      const NotificationDetails(
         android: AndroidNotificationDetails(
           'reminder_channel',
           'Study Reminders',

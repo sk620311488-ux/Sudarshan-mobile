@@ -1,30 +1,22 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:workmanager/workmanager.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'services/sync_service.dart';
+
+// Conditional import: background_service_mobile.dart is only compiled on
+// platforms that have dart:io (Android, iOS, desktop). The stub is used on
+// web. workmanager and firebase_messaging stay inside the mobile file so
+// they never reach the Windows/macOS/Linux linker.
+import 'services/background_service_stub.dart'
+    if (dart.library.io) 'services/background_service_mobile.dart'
+    as bg;
 
 import 'app.dart';
 import 'firebase_options.dart';
 
+// Entry-point for Workmanager background tasks (Android only).
+// @pragma keeps it in the release build; on non-Android it is never called.
 @pragma('vm:entry-point')
-void callbackDispatcher() {
-  WidgetsFlutterBinding.ensureInitialized();
-  Workmanager().executeTask((task, inputData) async {
-    if (task == "dailySyncTask") {
-      final syncService = SyncService();
-      await syncService.performEarlyMorningSync();
-    }
-    return Future.value(true);
-  });
-}
-
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  debugPrint("Handling a background message: ${message.messageId}");
-}
+void callbackDispatcher() => bg.callbackDispatcher();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,38 +24,15 @@ Future<void> main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    
-    // Background FCM handler
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Initialize Workmanager
-    await Workmanager().initialize(callbackDispatcher);
-
-    // Register 4 AM Sync Task
-    // Note: We schedule it to run every 24 hours. 
-    // Calculating delay to 4 AM is more precise but a simple periodic task works too.
-    await Workmanager().registerPeriodicTask(
-      "1",
-      "dailySyncTask",
-      frequency: const Duration(hours: 24),
-      initialDelay: _calculateDelayTo4AM(),
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-        requiresBatteryNotLow: true,
-      ),
-    );
-
+    // Workmanager + FCM are Android/iOS only.
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
+      await bg.registerBackgroundTasks();
+    }
   } catch (exc) {
     debugPrint('Background init skipped: $exc');
   }
   runApp(const SudarshanMobileApp());
-}
-
-Duration _calculateDelayTo4AM() {
-  final now = DateTime.now();
-  var scheduled = DateTime(now.year, now.month, now.day, 4, 0);
-  if (scheduled.isBefore(now)) {
-    scheduled = scheduled.add(const Duration(days: 1));
-  }
-  return scheduled.difference(now);
 }

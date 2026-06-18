@@ -1,17 +1,18 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_models.dart';
-
 import 'google_auth_helper.dart';
 
 class AuthService {
   static const _sessionKey = 'sudarshan_mobile_session';
   final GoogleAuthHelper _googleHelper = GoogleAuthHelper();
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   Future<AppSession?> loadSession() async {
     final prefs = await SharedPreferences.getInstance();
@@ -128,6 +129,10 @@ class AuthService {
       }
 
       final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
+      
+      // Send verification link automatically on signup
+      await refreshedUser.sendEmailVerification();
+
       final session = await _buildSessionFromUser(
         refreshedUser,
         mode: 'email',
@@ -210,6 +215,28 @@ class AuthService {
     );
   }
 
+  Future<void> sendOtpToEmail(String email) async {
+    // Generate a random 6-digit code
+    final code = (100000 + Random().nextInt(900000)).toString();
+    
+    // Save to Firestore 'pending_verifications'
+    await _db.collection('pending_verifications').doc(email.trim().toLowerCase()).set({
+      'code': code,
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    
+    // Log the code for local testing (In production, a Cloud Function should send this email)
+    debugPrint('Verification Code for $email: $code');
+  }
+
+  Future<bool> verifyOtp(String email, String inputCode) async {
+    final doc = await _db.collection('pending_verifications').doc(email.trim().toLowerCase()).get();
+    if (!doc.exists) return false;
+    
+    final storedCode = doc.data()?['code'];
+    return storedCode == inputCode.trim();
+  }
+
   Future<void> sendPasswordResetEmail(String email) async {
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email.trim());
@@ -227,7 +254,10 @@ class AuthService {
 
   bool isEmailVerified() {
     final user = FirebaseAuth.instance.currentUser;
-    return user?.emailVerified ?? false;
+    // Reload user to get latest status from Firebase
+    user?.reload();
+    final updatedUser = FirebaseAuth.instance.currentUser;
+    return updatedUser?.emailVerified ?? false;
   }
 
   String _mapFirebaseError(String code) {

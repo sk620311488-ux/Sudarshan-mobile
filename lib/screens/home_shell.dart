@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'dart:convert';
+import 'dart:io';
 
 import '../models/app_models.dart';
 import '../services/anki_export_service.dart';
@@ -138,249 +139,6 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-class _AiSubjectiveCheckerSheet extends StatefulWidget {
-  const _AiSubjectiveCheckerSheet({required this.controller});
-  final AppController controller;
-
-  @override
-  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
-}
-
-class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
-  final _modelController = TextEditingController();
-  final _answerController = TextEditingController();
-  final stt.SpeechToText _speech = stt.SpeechToText();
-  final ImagePicker _picker = ImagePicker();
-  
-  bool _isListening = false;
-  Uint8List? _imageBytes;
-  bool _loading = false;
-  Map<String, dynamic>? _result;
-
-  @override
-  void dispose() {
-    _modelController.dispose();
-    _answerController.dispose();
-    super.dispose();
-  }
-
-  void _listen() async {
-    if (!_isListening) {
-      bool available = await _speech.initialize(
-        onStatus: (val) => debugPrint('onStatus: $val'),
-        onError: (val) => debugPrint('onError: $val'),
-      );
-      if (available) {
-        setState(() => _isListening = true);
-        _speech.listen(
-          onResult: (val) => setState(() {
-            _answerController.text = val.recognizedWords;
-          }),
-        );
-      }
-    } else {
-      setState(() => _isListening = false);
-      _speech.stop();
-    }
-  }
-
-  Future<void> _pickImage(ImageSource source) async {
-    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
-    if (pickedFile != null) {
-      final bytes = await pickedFile.readAsBytes();
-      setState(() {
-        _imageBytes = bytes;
-        _answerController.text = "[Photo Uploaded]";
-      });
-    }
-  }
-
-  Future<void> _evaluate() async {
-    if (_modelController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
-      );
-      return;
-    }
-    if (_answerController.text.isEmpty && _imageBytes == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
-      );
-      return;
-    }
-
-    setState(() {
-      _loading = true;
-      _result = null;
-    });
-
-    try {
-      String? base64Image;
-      if (_imageBytes != null) {
-        base64Image = base64Encode(_imageBytes!);
-      }
-
-      final res = await widget.controller.aiEvaluateSubjective(
-        question: "Manual AI Check",
-        modelAnswer: _modelController.text,
-        studentAnswer: _answerController.text,
-        imageBase64: base64Image,
-      );
-
-      setState(() {
-        _result = res;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
-    return Container(
-      padding: EdgeInsets.only(
-        top: 24, left: 24, right: 24, 
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24
-      ),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
-                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _modelController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Model Answer / Topic Keywords',
-                hintText: 'Sahi answer yahan likho...',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _answerController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  children: [
-                    FloatingActionButton.small(
-                      heroTag: 'mic',
-                      onPressed: _listen,
-                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
-                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
-                    ),
-                    const SizedBox(height: 8),
-                    FloatingActionButton.small(
-                      heroTag: 'camera',
-                      onPressed: () => _pickImage(ImageSource.camera),
-                      backgroundColor: AppColors.blueSoft,
-                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
-                    ),
-                    const SizedBox(height: 8),
-                    FloatingActionButton.small(
-                      heroTag: 'gallery',
-                      onPressed: () => _pickImage(ImageSource.gallery),
-                      backgroundColor: AppColors.yellowSoft,
-                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            if (_imageBytes != null) ...[
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.memory(_imageBytes!, height: 100, width: 100, fit: BoxFit.cover),
-              ),
-              TextButton.icon(
-                onPressed: () => setState(() { _imageBytes = null; _answerController.clear(); }),
-                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
-                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
-              ),
-            ],
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _evaluate,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: AppColors.accent,
-                  foregroundColor: Colors.white,
-                ),
-                child: _loading 
-                  ? const CircularProgressIndicator(color: Colors.white) 
-                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-            ),
-            if (_result != null) ...[
-              const SizedBox(height: 24),
-              const Divider(),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: AppColors.greenSoft,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.green),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
-                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 16),
-                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
-                    const SizedBox(height: 4),
-                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class DashboardPage extends StatelessWidget {
   const DashboardPage({
     super.key,
@@ -495,7 +253,7 @@ class DashboardPage extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withValues(alpha: 0.2),
+                        color: Colors.orange.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Row(
@@ -753,6 +511,249 @@ class DashboardPage extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _AiSubjectiveCheckerSheet extends StatefulWidget {
+  const _AiSubjectiveCheckerSheet({required this.controller});
+  final AppController controller;
+
+  @override
+  State<_AiSubjectiveCheckerSheet> createState() => _AiSubjectiveCheckerSheetState();
+}
+
+class _AiSubjectiveCheckerSheetState extends State<_AiSubjectiveCheckerSheet> {
+  final _modelController = TextEditingController();
+  final _answerController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final ImagePicker _picker = ImagePicker();
+  
+  bool _isListening = false;
+  File? _image;
+  bool _loading = false;
+  Map<String, dynamic>? _result;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    _answerController.dispose();
+    super.dispose();
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _answerController.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _answerController.text = "[Photo Uploaded]";
+      });
+    }
+  }
+
+  Future<void> _evaluate() async {
+    if (_modelController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pehle Model Answer ya Keywords dalo.')),
+      );
+      return;
+    }
+    if (_answerController.text.isEmpty && _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apna answer likho, bolo ya photo upload karo.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+
+    try {
+      String? base64Image;
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        base64Image = base64Encode(bytes);
+      }
+
+      final res = await widget.controller.aiEvaluateSubjective(
+        question: "Manual AI Check",
+        modelAnswer: _modelController.text,
+        studentAnswer: _answerController.text,
+        imageBase64: base64Image,
+      );
+
+      setState(() {
+        _result = res;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Evaluation Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24, left: 24, right: 24, 
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+      ),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('AI Answer Checker', style: theme.textTheme.headlineSmall),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _modelController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Model Answer / Topic Keywords',
+                hintText: 'Sahi answer yahan likho...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Your Answer:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _answerController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Type karo, mic se bolo, ya photo khicho...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'mic',
+                      onPressed: _listen,
+                      backgroundColor: _isListening ? Colors.red : AppColors.teal,
+                      child: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'camera',
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      backgroundColor: AppColors.blueSoft,
+                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.text),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'gallery',
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      backgroundColor: AppColors.yellowSoft,
+                      child: const Icon(Icons.photo_library_outlined, color: AppColors.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (_image != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(_image!, height: 100, width: 100, fit: BoxFit.cover),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() { _image = null; _answerController.clear(); }),
+                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                label: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _evaluate,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading 
+                  ? const CircularProgressIndicator(color: Colors.white) 
+                  : const Text('Check My Answer Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.greenSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.green),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Evaluation Score', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_result!['score']}/100', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.green)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Feedback: ${_result!['feedback']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    const Text('AI Explanation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
+                    const SizedBox(height: 4),
+                    Text(_result!['explanation'] ?? '', style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1218,395 +1219,6 @@ class _NotebookPageState extends State<NotebookPage> {
   }
 }
 
-class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key, required this.controller});
-
-  final AppController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final streak = controller.dailyStreak;
-    final achievements = controller.achievements;
-    final level = controller.userLevel;
-    final exp = controller.totalExp;
-    final progress = controller.levelProgress;
-    final rank = controller.rankTitle;
-    final nextLevelAt = controller.nextLevelExp;
-
-    return ListView(
-      padding: const EdgeInsets.all(18),
-      children: [
-        SoftCard(
-          color: theme.colorScheme.surface,
-          child: Column(
-            children: [
-              Stack(
-                alignment: Alignment.bottomRight,
-                children: [
-                  CircleAvatar(
-                    radius: 40,
-                    backgroundColor: theme.brightness == Brightness.dark
-                        ? AppColors.blueDark
-                        : AppColors.blueSoft,
-                    child: Icon(Icons.person,
-                        size: 40, color: theme.colorScheme.onSurface),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: const BoxDecoration(
-                      color: AppColors.accent,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Text(
-                      '$level',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(controller.session?.name ?? 'Student',
-                  style: theme.textTheme.headlineSmall),
-              Text(rank,
-                  style: TextStyle(
-                      color: theme.brightness == Brightness.dark
-                          ? AppColors.accent
-                          : AppColors.teal,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2)),
-              const SizedBox(height: 16),
-              // Level Progress Bar
-              Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Level $level',
-                          style: const TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.bold)),
-                      Text('$exp / $nextLevelAt EXP',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurfaceVariant)),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      backgroundColor: theme.brightness == Brightness.dark
-                          ? AppColors.lineDark
-                          : theme.dividerColor,
-                      color: AppColors.accent,
-                      minHeight: 8,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  InkWell(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) =>
-                                HistoryScreen(controller: controller)),
-                      );
-                    },
-                    child: _ProfileStat(
-                        label: 'Tests', value: '${controller.attempts.length}'),
-                  ),
-                  _ProfileStat(label: 'Streak', value: '$streak'),
-                  _ProfileStat(
-                      label: 'Cards',
-                      value: '${controller.notebookCards.length}'),
-                ],
-              ),
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: () => _showEditIdDialog(context),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Student ID: ${controller.session?.studentId}',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.onSurfaceVariant)),
-                    const SizedBox(width: 4),
-                    Icon(Icons.edit,
-                        size: 14, color: theme.colorScheme.onSurfaceVariant),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.share),
-                  label: const Text('Share My Progress'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.accent,
-                    foregroundColor: AppColors.white,
-                  ),
-                  onPressed: () {
-                    final name = controller.session?.name ?? 'Student';
-                    final streak = controller.dailyStreak;
-                    final level = controller.userLevel;
-                    final tests = controller.attempts.length;
-                    final cards = controller.notebookCards.length;
-                    final studentId = controller.session?.studentId ?? '';
-
-                    final text = '''
-ðŸš€ SUDARSHAN LEARNING JOURNEY ðŸš€
----------------------------
-ðŸ‘¤ Student: $name
-ðŸ†” Sudarshan ID: $studentId
-ðŸ”¥ Daily Streak: $streak Days
-ðŸŽ–ï¸ Rank: ${controller.rankTitle} (Level $level)
-ðŸ“š Tests Mastered: $tests
-ðŸ§  Memory Cards: $cards
-
-ðŸ† I am mastering my Bihar Board subjects using Spaced Repetition on Sudarshan App!
-
-Join me and let's compete together!
-Download Sudarshan Now.
-''';
-                    SharePlus.instance.share(ShareParams(text: text));
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text('Settings', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 12),
-        SoftCard(
-          color: theme.cardColor,
-          child: Column(
-            children: [
-              ListTile(
-                leading: Icon(
-                    controller.isDarkMode ? Icons.dark_mode : Icons.light_mode),
-                title: const Text('Dark Mode'),
-                trailing: Switch(
-                  value: controller.isDarkMode,
-                  onChanged: (val) => controller.toggleTheme(),
-                ),
-              ),
-              Divider(color: theme.dividerColor),
-              ListTile(
-                leading: const Icon(Icons.help_outline),
-                title: const Text('Show Onboarding Again'),
-                onTap: () async {
-                  // Quick reset for demo
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool(
-                      'sudarshan_mobile_onboarding_done', false);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Restart app to see onboarding!')));
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text('Weekly Progress', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 12),
-        SoftCard(
-          color: theme.cardColor,
-          child: SizedBox(
-            height: 150,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: List.generate(7, (index) {
-                // Dummy logic for bars based on attempts in last 7 days
-                final day = DateTime.now().subtract(Duration(days: 6 - index));
-                final dateKey =
-                    '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
-                final count = controller.attempts
-                    .where((a) => a.dateKey == dateKey)
-                    .length;
-                final height = (count * 20.0).clamp(10.0, 100.0);
-
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Container(
-                      width: 30,
-                      height: height,
-                      decoration: BoxDecoration(
-                        color:
-                            count > 0 ? AppColors.blueSoft : theme.dividerColor,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(['M', 'T', 'W', 'T', 'F', 'S', 'S'][day.weekday - 1],
-                        style: const TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.bold)),
-                  ],
-                );
-              }),
-            ),
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text('Achievements', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 12),
-        if (achievements.isEmpty)
-          const SoftCard(child: Text('Keep studying to unlock badges!')),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: achievements
-              .map((a) => Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: theme.cardColor,
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: theme.dividerColor),
-                    ),
-                    child: Text(a,
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                  ))
-              .toList(),
-        ),
-        const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.logout),
-            onPressed: () => controller.signOut(),
-            label: const Text('Sign Out'),
-            style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _showEditIdDialog(BuildContext context) {
-    final controllerText =
-        TextEditingController(text: controller.session?.customStudentId);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Student ID'),
-        content: TextField(
-          controller: controllerText,
-          decoration: const InputDecoration(hintText: 'Enter your custom ID'),
-          maxLength: 12,
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              controller.updateStudentId(controllerText.text);
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DailyMissionsCard extends StatelessWidget {
-  const _DailyMissionsCard({required this.controller});
-  final AppController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final missions = controller.missions;
-    if (missions.isEmpty) return const SizedBox.shrink();
-
-    return SoftCard(
-      color: AppColors.yellowSoft,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Daily Missions',
-                  style: Theme.of(context).textTheme.titleLarge),
-              const Icon(Icons.auto_awesome, color: Colors.orange, size: 20),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...missions.map((m) => Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(m.title,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              decoration: m.isCompleted
-                                  ? TextDecoration.lineThrough
-                                  : null,
-                              color: m.isCompleted ? AppColors.muted : null,
-                            )),
-                        Text('${m.progress}/${m.goal}',
-                            style: const TextStyle(fontSize: 12)),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: m.progress / m.goal,
-                        backgroundColor: Colors.white,
-                        color: m.isCompleted ? AppColors.green : Colors.orange,
-                        minHeight: 6,
-                      ),
-                    ),
-                  ],
-                ),
-              )),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileStat extends StatelessWidget {
-  const _ProfileStat({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(value,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        Text(label, style: const TextStyle(color: AppColors.muted)),
-      ],
-    );
-  }
-}
-
 class _NotebookCardItem extends StatelessWidget {
   const _NotebookCardItem({
     super.key,
@@ -1709,6 +1321,23 @@ class _NotebookCardItem extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ProfileStat extends StatelessWidget {
+  const _ProfileStat({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(value,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: AppColors.muted)),
+      ],
     );
   }
 }
@@ -1847,6 +1476,68 @@ class _MiniTag extends StatelessWidget {
             fontSize: 12,
             fontWeight: FontWeight.w700,
             color: Theme.of(context).colorScheme.onSurface),
+      ),
+    );
+  }
+}
+
+class _DailyMissionsCard extends StatelessWidget {
+  const _DailyMissionsCard({required this.controller});
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final missions = controller.missions;
+    if (missions.isEmpty) return const SizedBox.shrink();
+
+    return SoftCard(
+      color: AppColors.yellowSoft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Daily Missions',
+                  style: Theme.of(context).textTheme.titleLarge),
+              const Icon(Icons.auto_awesome, color: Colors.orange, size: 20),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...missions.map((m) => Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(m.title,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              decoration: m.isCompleted
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              color: m.isCompleted ? AppColors.muted : null,
+                            )),
+                        Text('${m.progress}/${m.goal}',
+                            style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: m.progress / m.goal,
+                        backgroundColor: Colors.white,
+                        color: m.isCompleted ? AppColors.green : Colors.orange,
+                        minHeight: 6,
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+        ],
       ),
     );
   }

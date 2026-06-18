@@ -68,18 +68,20 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
 
     try {
       if (createAccount) {
-        // Instead of direct signup, we move to verification step
-        // In a real app, you'd send an OTP here via a backend function
-        // For Sudarshan, we'll use Firebase standard verification or a mock flow for 'verification code'
+        // Step 1: Send OTP to Firestore
+        await widget.controller.sendOtpToEmail(email);
+        
+        // Step 2: Show OTP entry screen
+        if (!mounted) return;
         setState(() {
           _pendingEmail = email;
           _pendingPassword = password;
           _pendingName = name;
           _view = AuthView.verify;
         });
-        // Mock sending code
+        
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Verification code aapke email par bhej diya gaya hai.')),
+          const SnackBar(content: Text('Verification code Firestore mein save kar diya gaya hai. Console check karein.')),
         );
       } else {
         await widget.controller.signInWithEmail(
@@ -91,10 +93,41 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
       if (!mounted) return;
       final msg = exc.toString().replaceFirst('Exception: ', '');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      
-      if (msg.contains('sahi nahi hai') || msg.contains('password')) {
-        setState(() => _view = AuthView.login); // Stay on login but maybe show forgot?
+    }
+  }
+
+  Future<void> _completeSignupWithCode() async {
+    final code = _otpController.text.trim();
+    if (code.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please 6-digit ka code dalo.')),
+      );
+      return;
+    }
+
+    try {
+      final isValid = await widget.controller.verifyOtp(_pendingEmail, code);
+      if (!isValid) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Galti code! Phir se try karo.')),
+        );
+        return;
       }
+
+      // If code is valid, proceed with actual Firebase signup
+      await widget.controller.signUpWithEmail(
+        name: _pendingName,
+        email: _pendingEmail,
+        password: _pendingPassword,
+      );
+      
+      // Verification link logic is still there as a second layer, but we can bypass or ignore for now
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(exc.toString().replaceFirst('Exception: ', ''))),
+      );
     }
   }
 
@@ -446,27 +479,35 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
               Text('Verify Account', style: theme.textTheme.titleLarge),
               const SizedBox(height: 16),
               Text(
-                  'Humne $_pendingEmail par ek verification code bheja hai. Account active karne ke liye use yahan dalo.'),
+                  'Humne $_pendingEmail ke liye ek verification code generate kiya hai. Use yahan dalo.'),
               const SizedBox(height: 24),
               TextField(
                   controller: _otpController,
                   keyboardType: TextInputType.number,
+                  maxLength: 6,
                   decoration: const InputDecoration(
-                      labelText: 'Verification Code (6 digits)',
+                      labelText: '6-Digit Code',
+                      counterText: '',
                       prefixIcon: Icon(Icons.verified_user_outlined))),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: busy ? null : _completeSignup,
-                  child: const Text('Create Account Now'),
+                  onPressed: busy ? null : _completeSignupWithCode,
+                  child: const Text('Verify & Create Account'),
                 ),
               ),
               const SizedBox(height: 12),
               Center(
                 child: TextButton(
+                  onPressed: busy ? null : () => widget.controller.sendOtpToEmail(_pendingEmail),
+                  child: const Text('Resend Code'),
+                ),
+              ),
+              Center(
+                child: TextButton(
                   onPressed: () => setState(() => _view = AuthView.selection),
-                  child: const Text('Cancel'),
+                  child: const Text('Back to Home'),
                 ),
               ),
             ],

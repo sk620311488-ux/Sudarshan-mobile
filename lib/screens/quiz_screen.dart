@@ -137,70 +137,6 @@ class _QuizScreenState extends State<QuizScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _showExplanation(BuildContext context, AppQuestion question) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(25)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.menu_book_rounded, color: AppColors.accent),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Explanation',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                question.explanation.trim().isEmpty
-                    ? 'Model answer right side me hai. Is question ke liye abhi extra explanation available nahi hai.'
-                    : question.explanation,
-                style: const TextStyle(fontSize: 15, height: 1.5),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.blueSoft.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Text(
-                  'Correct answer: ${question.correct}',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Got it'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _submit({bool timedOut = false, bool quitTest = false}) async {
     if (_submitted || _shuffledQuestions.isEmpty) {
       return;
@@ -425,16 +361,43 @@ return Scaffold(
                                       _showFeedback[qIdx] = true;
                                     });
                                     if (question.explanation.trim().isNotEmpty) {
-                                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                                        if (mounted) {
-                                          _showExplanation(context, question);
-                                        }
-                                      });
+                                      // Explanation is now shown inline below options
                                     }
                                   },
                                 );
                               },
                             ),
+                            if (_showFeedback[qIdx])
+                              Padding(
+                                padding: const EdgeInsets.only(top: 16),
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.blueSoft.withOpacity(0.3),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(color: AppColors.blueSoft),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.info_outline, color: AppColors.blue, size: 20),
+                                          const SizedBox(width: 8),
+                                          Text('Explanation', style: theme.textTheme.titleMedium?.copyWith(color: AppColors.blue)),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        question.explanation.trim().isEmpty 
+                                          ? 'Correct answer is: ${question.correct}'
+                                          : question.explanation,
+                                        style: theme.textTheme.bodyLarge,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                           ] else
                             Column(
                               children: [

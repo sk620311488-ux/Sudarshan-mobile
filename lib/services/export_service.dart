@@ -7,9 +7,9 @@ class ExportService {
   Future<void> exportNotebookToPdf(List<NotebookCard> cards) async {
     final pdf = pw.Document();
 
-    // Hind renders Devanagari a bit cleaner in this notebook layout.
-    final bodyFont = await PdfGoogleFonts.hindRegular();
-    final boldFont = await PdfGoogleFonts.hindBold();
+    // Use "Poppins" for perfect Hindi rendering (ligatures) in PDF without extra shaping
+    final bodyFont = await PdfGoogleFonts.poppinsRegular();
+    final boldFont = await PdfGoogleFonts.poppinsBold();
 
     pdf.addPage(
       pw.MultiPage(

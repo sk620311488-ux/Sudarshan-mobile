@@ -242,6 +242,30 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> sendOtpToEmail(String email) async {
+    _busy = true;
+    _message = '';
+    notifyListeners();
+    try {
+      await _authService.sendOtpToEmail(email);
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> verifyOtp(String email, String code) async {
+    _busy = true;
+    _message = '';
+    notifyListeners();
+    try {
+      return await _authService.verifyOtp(email, code);
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> sendPasswordResetEmail(String email) async {
     _busy = true;
     _message = '';

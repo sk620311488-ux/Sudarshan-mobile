@@ -526,52 +526,78 @@ class TestsPage extends StatefulWidget {
 
 class _TestsPageState extends State<TestsPage> {
   String _searchQuery = '';
-  String? _selectedSubjectFolder;
-  String? _selectedSubSubjectFolder;
+  String? _selectedSubject;
+  String? _selectedSubSubject;
+  String? _selectedChapter;
+
+  void _onBack() {
+    setState(() {
+      if (_selectedChapter != null) {
+        _selectedChapter = null;
+      } else if (_selectedSubSubject != null) {
+        _selectedSubSubject = null;
+      } else if (_selectedSubject != null) {
+        _selectedSubject = null;
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final allTests = widget.controller.tests;
 
-    // Filter by search query first
-    final searchFilteredTests = allTests.where((test) {
-      final matchesSearch =
-          test.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              test.chapter.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              test.subject.toLowerCase().contains(_searchQuery.toLowerCase());
-      return matchesSearch;
-    }).toList();
-
+    // Search Mode
     if (_searchQuery.isNotEmpty) {
-      return _buildTestList(searchFilteredTests, theme);
+      final searchFilteredTests = allTests.where((test) {
+        final matchesSearch =
+            test.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                test.chapter.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                test.subject.toLowerCase().contains(_searchQuery.toLowerCase());
+        return matchesSearch;
+      }).toList();
+      return _buildSearchList(searchFilteredTests, theme);
     }
 
-    if (_selectedSubSubjectFolder != null) {
-      final subSubjectTests = allTests
-          .where((test) =>
-              test.subject == _selectedSubSubjectFolder ||
-              test.book == _selectedSubSubjectFolder)
-          .toList();
-      return _buildChapterView(subSubjectTests, theme, isSubSubject: true);
+    // Chapter View (Tests inside a chapter)
+    if (_selectedChapter != null) {
+      final chapterTests = allTests.where((test) {
+        if (_selectedSubSubject == 'Daily Test') {
+          return test.isDaily && test.subject == _selectedSubject;
+        }
+        
+        // Exact matching for Bihar Board Chapters
+        // We check if the test's chapter name is exactly same or contained in our list
+        final testChapter = test.chapter.trim();
+        final selectedChapter = _selectedChapter!.trim();
+        
+        return test.subject == _selectedSubject && 
+               (testChapter == selectedChapter || 
+                testChapter.contains(selectedChapter) || 
+                selectedChapter.contains(testChapter));
+      }).toList();
+      return _buildTestsInsideChapter(chapterTests, theme);
     }
 
-    if (_selectedSubjectFolder != null) {
-      // Check if it has sub-subjects (like Science/SST)
-      final subSubs = SubjectConstants.subSubjects[_selectedSubjectFolder];
-      if (subSubs != null) {
-        return _buildSubSubjectView(_selectedSubjectFolder!, subSubs, theme);
+    // Sub-subject/Book/Daily Folder View
+    if (_selectedSubSubject != null) {
+      if (_selectedSubSubject == 'Daily Test') {
+        return _buildDailyTestDatesView(allTests, theme);
       }
-
-      final subjectTests = allTests
-          .where((test) => test.subject == _selectedSubjectFolder)
-          .toList();
-      return _buildChapterView(subjectTests, theme);
+      return _buildChaptersView(theme);
     }
 
-    // Show Main Subjects as Folders
-    final subjects = SubjectConstants.subjects;
+    // Main Subject View
+    if (_selectedSubject != null) {
+      return _buildSubSubjectsView(theme);
+    }
 
+    // Root Subject List
+    return _buildRootSubjects(theme);
+  }
+
+  Widget _buildRootSubjects(ThemeData theme) {
+    final subjects = SubjectConstants.subjects;
     return Column(
       children: [
         _buildSearchBar(theme),
@@ -579,16 +605,14 @@ class _TestsPageState extends State<TestsPage> {
           child: ListView(
             padding: const EdgeInsets.all(18),
             children: [
-              Text('Subjects', style: theme.textTheme.titleLarge),
+              Text('Select Subject', style: theme.textTheme.titleLarge),
               const SizedBox(height: 12),
-              ...subjects.map((sub) {
-                return ListTile(
-                  leading: const Icon(Icons.folder, color: AppColors.blue),
-                  title: Text(sub, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => setState(() => _selectedSubjectFolder = sub),
-                );
-              }),
+              ...subjects.map((sub) => _FolderTile(
+                    title: sub,
+                    icon: Icons.folder,
+                    color: AppColors.blue,
+                    onTap: () => setState(() => _selectedSubject = sub),
+                  )),
             ],
           ),
         ),
@@ -596,36 +620,121 @@ class _TestsPageState extends State<TestsPage> {
     );
   }
 
-  Widget _buildSubSubjectView(String parent, List<String> subs, ThemeData theme) {
+  Widget _buildSubSubjectsView(ThemeData theme) {
+    final subs = SubjectConstants.subSubjects[_selectedSubject] ?? [];
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => setState(() => _selectedSubjectFolder = null),
-              ),
-              Text(parent, style: theme.textTheme.titleLarge),
-            ],
-          ),
-        ),
+        _buildHeader(_selectedSubject!),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.all(18),
-            children: subs.map((sub) {
-              return ListTile(
-                leading: const Icon(Icons.folder_shared, color: AppColors.teal),
-                title: Text(sub, style: const TextStyle(fontWeight: FontWeight.bold)),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => setState(() => _selectedSubSubjectFolder = sub),
-              );
-            }).toList(),
+            children: [
+              ...subs.map((sub) => _FolderTile(
+                    title: sub,
+                    icon: sub == 'Daily Test' ? Icons.today : Icons.folder_shared,
+                    color: sub == 'Daily Test' ? AppColors.yellow : AppColors.teal,
+                    onTap: () => setState(() => _selectedSubSubject = sub),
+                  )),
+            ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDailyTestDatesView(List<AppTest> tests, ThemeData theme) {
+    final dailyTests = tests.where((t) => t.isDaily && t.subject == _selectedSubject).toList();
+    // Sort by date (usually ID is YYYY-MM-DD)
+    dailyTests.sort((a, b) => b.id.compareTo(a.id));
+
+    return Column(
+      children: [
+        _buildHeader('Daily Tests: $_selectedSubject'),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(18),
+            children: dailyTests.isEmpty 
+              ? [const Center(child: Text('No daily tests found.'))]
+              : dailyTests.map((test) => ListTile(
+                leading: const Icon(Icons.event, color: AppColors.yellow),
+                title: Text(test.title),
+                subtitle: Text('Date: ${test.id}'),
+                trailing: const Icon(Icons.play_arrow),
+                onTap: () => _openTest(test),
+              )).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChaptersView(ThemeData theme) {
+    final chapters = SubjectConstants.chapters[_selectedSubSubject] ?? [];
+    return Column(
+      children: [
+        _buildHeader(_selectedSubSubject!),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(18),
+            children: [
+              ...chapters.map((ch) => ListTile(
+                    leading: const Icon(Icons.book, color: AppColors.teal),
+                    title: Text(ch),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => setState(() => _selectedChapter = ch),
+                  )),
+              // Add a "Others" for tests that don't match known chapters
+              ListTile(
+                leading: const Icon(Icons.more_horiz),
+                title: const Text('Miscellaneous'),
+                onTap: () => setState(() => _selectedChapter = 'Misc'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTestsInsideChapter(List<AppTest> tests, ThemeData theme) {
+    return Column(
+      children: [
+        _buildHeader(_selectedChapter!),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(18),
+            children: tests.isEmpty
+                ? [const Center(child: Text('Is chapter mein abhi koi test nahi hai.'))]
+                : tests.map((test) => _TestTile(test: test, onTap: () => _openTest(test))).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchList(List<AppTest> tests, ThemeData theme) {
+    return Column(
+      children: [
+        _buildSearchBar(theme),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(18),
+            children: tests.map((test) => _TestTile(test: test, onTap: () => _openTest(test))).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 18, 18, 0),
+      child: Row(
+        children: [
+          IconButton(icon: const Icon(Icons.arrow_back), onPressed: _onBack),
+          Expanded(child: Text(title, style: Theme.of(context).textTheme.titleLarge, overflow: TextOverflow.ellipsis)),
+        ],
+      ),
     );
   }
 
@@ -635,131 +744,60 @@ class _TestsPageState extends State<TestsPage> {
       child: TextField(
         onChanged: (val) => setState(() => _searchQuery = val),
         decoration: InputDecoration(
-          hintText: 'Search subjects, chapters, or titles...',
+          hintText: 'Search tests...',
           prefixIcon: const Icon(Icons.search),
           filled: true,
           fillColor: theme.cardColor,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(15),
-            borderSide: BorderSide.none,
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
         ),
       ),
     );
   }
 
-  Widget _buildChapterView(List<AppTest> tests, ThemeData theme, {bool isSubSubject = false}) {
-    final chapters = tests.map((e) => e.chapter).toSet().toList();
-    chapters.sort();
+  void _openTest(AppTest test) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => QuizScreen(controller: widget.controller, test: test)));
+  }
+}
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () {
-                  if (isSubSubject) {
-                    setState(() => _selectedSubSubjectFolder = null);
-                  } else {
-                    setState(() => _selectedSubjectFolder = null);
-                  }
-                },
-              ),
-              Text(isSubSubject ? _selectedSubSubjectFolder! : _selectedSubjectFolder!,
-                   style: theme.textTheme.titleLarge),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(18),
-            children: [
-              if (tests.isEmpty)
-                const Center(child: Padding(
-                  padding: EdgeInsets.only(top: 20),
-                  child: Text('No tests found in this category.'),
-                )),
-              ...chapters.map((chapter) {
-                final chapterTests =
-                    tests.where((t) => t.chapter == chapter).toList();
-                return ExpansionTile(
-                  leading: const Icon(Icons.book, color: AppColors.teal),
-                  title: Text(chapter.isEmpty ? 'General' : chapter),
-                  children: chapterTests
-                      .map((test) => ListTile(
-                            title: Text(test.title),
-                            subtitle: Text('${test.questionCount} Qs | ${test.timeLimitMin} min'),
-                            trailing: ElevatedButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => QuizScreen(
-                                        controller: widget.controller,
-                                        test: test),
-                                  ),
-                                );
-                              },
-                              child: const Text('Start'),
-                            ),
-                          ))
-                      .toList(),
-                );
-              }),
-            ],
-          ),
-        ),
-      ],
+class _FolderTile extends StatelessWidget {
+  const _FolderTile({required this.title, required this.icon, required this.color, required this.onTap});
+  final String title;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
     );
   }
+}
 
-  Widget _buildTestList(List<AppTest> tests, ThemeData theme) {
-    return Column(
-      children: [
-        _buildSearchBar(theme),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(18),
-            children: tests
-                .map((test) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: SoftCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(test.title, style: theme.textTheme.titleLarge),
-                            const SizedBox(height: 4),
-                            Text('${test.subject} | ${test.chapter}'),
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('${test.questionCount} Qs'),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => QuizScreen(
-                                            controller: widget.controller,
-                                            test: test),
-                                      ),
-                                    );
-                                  },
-                                  child: const Text('Start'),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ))
-                .toList(),
-          ),
+class _TestTile extends StatelessWidget {
+  const _TestTile({required this.test, required this.onTap});
+  final AppTest test;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SoftCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(test.title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text('${test.questionCount} Qs | ${test.timeLimitMin} min'),
+            const SizedBox(height: 12),
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: onTap, child: const Text('Start Test'))),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

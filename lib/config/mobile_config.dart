@@ -8,5 +8,5 @@ class MobileFirebaseConfig {
 
   // Groq AI Config
   static const groqApiKey = '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';
-  static const groqModel = 'llama-3.1-8b-instant';
+  static const groqModel = 'llama-3.3-70b-versatile';
 }

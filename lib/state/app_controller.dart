@@ -143,7 +143,6 @@ class AppController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       _isDarkMode = prefs.getBool(_themeKey) ?? false;
       _onboardingDone = prefs.getBool(_onboardingKey) ?? false;
-      _totalExp = prefs.getInt(_expKey) ?? 0;
       _idChangeCount = prefs.getInt(_idChangeCountKey) ?? 0;
       _lastIdChangeDate = prefs.getString(_idChangeDateKey) ?? '';
 
@@ -151,17 +150,11 @@ class AppController extends ChangeNotifier {
 
       // 1. Load critical local data first for instant UI
       _session = await _authService.loadSession();
-      final results = await Future.wait([
-        _localStoreService.loadNotebookCards(),
-        _localStoreService.loadCustomTests(),
-        _localStoreService.loadAttempts(),
-        _localStoreService.loadCachedCloudTests(),
-      ]);
+      
+      // Load user specific EXP
+      _totalExp = prefs.getInt('${_session?.uid}_$_expKey') ?? prefs.getInt(_expKey) ?? 0;
 
-      _notebookCards = results[0] as List<NotebookCard>;
-      _customTests = results[1] as List<AppTest>;
-      _attempts = results[2] as List<AppAttempt>;
-      _liveTests = results[3] as List<AppTest>;
+      await _loadLocalData(_session?.uid);
       _missions = await _missionService.getMissions();
     } catch (e) {
       debugPrint('Initialization error: $e');
@@ -177,6 +170,25 @@ class AppController extends ChangeNotifier {
     } catch (e) {
       debugPrint('Post-init background tasks error: $e');
     }
+  }
+
+  Future<void> _loadLocalData(String? userId) async {
+    final results = await Future.wait([
+      _localStoreService.loadNotebookCards(userId),
+      _localStoreService.loadCustomTests(userId),
+      _localStoreService.loadAttempts(userId),
+      _localStoreService.loadCachedCloudTests(userId),
+    ]);
+
+    _notebookCards = results[0] as List<NotebookCard>;
+    _customTests = results[1] as List<AppTest>;
+    _attempts = results[2] as List<AppAttempt>;
+    _liveTests = results[3] as List<AppTest>;
+    
+    final prefs = await SharedPreferences.getInstance();
+    _totalExp = prefs.getInt('${userId}_$_expKey') ?? 0;
+    
+    notifyListeners();
   }
 
   Future<void> _backgroundInit() async {
@@ -216,7 +228,7 @@ class AppController extends ChangeNotifier {
         // Merge with existing live tests (replace if same ID)
         final otherTests = _liveTests.where((t) => t.id != daily.id).toList();
         _liveTests = [daily, ...otherTests];
-        await _localStoreService.saveCachedCloudTests(_liveTests);
+        await _localStoreService.saveCachedCloudTests(_liveTests, _session?.uid);
         notifyListeners(); // Immediate update for daily test
       }
 
@@ -226,7 +238,7 @@ class AppController extends ChangeNotifier {
         // Build final list: Daily (if exists) + Public
         final dailyExists = _liveTests.firstWhere((t) => t.isDaily, orElse: () => _fallbackTests.first);
         _liveTests = [if (dailyExists.isDaily) dailyExists, ...public];
-        await _localStoreService.saveCachedCloudTests(_liveTests);
+        await _localStoreService.saveCachedCloudTests(_liveTests, _session?.uid);
         _message = 'All tests synced';
       }
     } catch (e) {
@@ -291,6 +303,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     try {
       _session = await _authService.continueAsGuest();
+      await _loadLocalData(_session?.uid);
       await refreshTests();
     } finally {
       _busy = false;
@@ -356,6 +369,7 @@ class AppController extends ChangeNotifier {
     await _authService.signOut();
     _session = null;
     _dailyLeaderboardEntry = null;
+    await _loadLocalData(null);
     notifyListeners();
   }
 
@@ -421,7 +435,7 @@ class AppController extends ChangeNotifier {
       final merged = [..._notebookCards];
       merged[index] = updatedCard;
       _notebookCards = merged;
-      await _localStoreService.saveNotebookCards(_notebookCards);
+      await _localStoreService.saveNotebookCards(_notebookCards, _session?.uid);
       await _syncCloudProgressIfAvailable();
       notifyListeners();
     }
@@ -647,7 +661,7 @@ class AppController extends ChangeNotifier {
             item.topic != card.topic ||
             item.chapter != card.chapter)
         .toList();
-    await _localStoreService.saveNotebookCards(_notebookCards);
+    await _localStoreService.saveNotebookCards(_notebookCards, _session?.uid);
     await _syncCloudProgressIfAvailable();
     await _syncPublicProfileIfAvailable();
     notifyListeners();
@@ -695,7 +709,7 @@ class AppController extends ChangeNotifier {
       merged.add(card);
     }
     _notebookCards = merged;
-    await _localStoreService.saveNotebookCards(_notebookCards);
+    await _localStoreService.saveNotebookCards(_notebookCards, _session?.uid);
     await _syncCloudProgressIfAvailable();
     await _syncPublicProfileIfAvailable();
 
@@ -716,7 +730,7 @@ class AppController extends ChangeNotifier {
       merged.add(test);
     }
     _customTests = merged;
-    await _localStoreService.saveCustomTests(_customTests);
+    await _localStoreService.saveCustomTests(_customTests, _session?.uid);
     notifyListeners();
   }
 
@@ -742,11 +756,11 @@ class AppController extends ChangeNotifier {
       savedAtIso: now.toIso8601String(),
     );
     _attempts = [..._attempts, attempt];
-    await _localStoreService.saveAttempts(_attempts);
+    await _localStoreService.saveAttempts(_attempts, _session?.uid);
 
     _totalExp += summary.earnedExp;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_expKey, _totalExp);
+    await prefs.setInt('${_session?.uid}_$_expKey', _totalExp);
 
     await updateMissionProgress('tests', 1);
     await updateMissionProgress('streak', 1);
@@ -812,7 +826,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     final shouldNotify =
-        await _localStoreService.shouldNotifyDailyTest(daily.id);
+        await _localStoreService.shouldNotifyDailyTest(daily.id, _session?.uid);
     if (!shouldNotify) {
       return;
     }
@@ -839,7 +853,7 @@ class AppController extends ChangeNotifier {
         period: LeaderboardPeriod.daily,
         currentUid: _session!.uid,
       );
-      final previousRank = await _localStoreService.loadLastDailyRank();
+      final previousRank = await _localStoreService.loadLastDailyRank(_session?.uid);
       _dailyLeaderboardEntry = board.currentUser;
       final currentRank = board.currentUser?.rank;
       if (previousRank != null &&
@@ -849,7 +863,7 @@ class AppController extends ChangeNotifier {
           newRank: currentRank,
         );
       }
-      await _localStoreService.saveLastDailyRank(currentRank);
+      await _localStoreService.saveLastDailyRank(currentRank, _session?.uid);
       if (!silent) {
         notifyListeners();
       }
@@ -1017,7 +1031,7 @@ class AppController extends ChangeNotifier {
       }
     }
     _notebookCards = merged;
-    await _localStoreService.saveNotebookCards(_notebookCards);
+    await _localStoreService.saveNotebookCards(_notebookCards, _session?.uid);
     await _syncPublicProfileIfAvailable();
     
     // Check for milestones: 5, 10, 15...
@@ -1051,9 +1065,9 @@ class AppController extends ChangeNotifier {
     // because _attempts and _totalExp are now updated.
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_expKey, _totalExp);
-    await _localStoreService.saveAttempts(_attempts);
-    await _localStoreService.saveNotebookCards(_notebookCards);
+    await prefs.setInt('${session.uid}_$_expKey', _totalExp);
+    await _localStoreService.saveAttempts(_attempts, session.uid);
+    await _localStoreService.saveNotebookCards(_notebookCards, session.uid);
   }
 
   Future<void> _syncCloudProgressIfAvailable() async {

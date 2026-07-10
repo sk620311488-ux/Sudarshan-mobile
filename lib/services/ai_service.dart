@@ -20,27 +20,33 @@ Model Answer: "$modelAnswer"
 Student Answer: "$studentAnswer"
 ${imageBase64 != null ? 'The student also attached a handwritten photo. Use it only as context; grade from the answer text.' : ''}
 
+Strict Instructions:
+1. Provide response strictly in Hindi (Devanagari script).
+2. Evaluate based on key keywords presence.
+3. Check for grammatical errors and sentence structure in Hindi.
+4. Do not hallucinate. If the student's answer is completely irrelevant, give 0 score.
+
 Provide:
 1. A score from 0 to 100 based on accuracy, completeness, and clarity.
-2. Short, constructive feedback in Hindi or English (depending on the question's language).
+2. Constructive feedback in Hindi about keywords and grammar.
 3. A detailed explanation of the correct answer and why the student got their score.
 4. If an image is provided, transcribe the text briefly if possible and evaluate it.
 
 Format your response as a valid JSON object:
-{"score": 85, "feedback": "Your explanation is good...", "explanation": "The detailed explanation here...", "transcription": "..." }
+{"score": 85, "feedback": "Hindi feedback here...", "explanation": "Detailed Hindi explanation...", "transcription": "..." }
 ''';
 
     try {
-      final response = await _postToGroq(prompt);
+      final response = await _postToGroq(prompt, forceJson: true);
       final data = jsonDecode(response);
       return {
         'score': data['score'] ?? 0,
-        'feedback': data['feedback'] ?? 'No feedback available.',
+        'feedback': data['feedback'] ?? 'कोई प्रतिक्रिया उपलब्ध नहीं है।',
         'explanation': data['explanation'] ?? '',
         'transcription': data['transcription'] ?? '',
       };
     } catch (e) {
-      return {'score': 0, 'feedback': 'AI evaluation failed: $e'};
+      return {'score': 0, 'feedback': 'AI मूल्यांकन विफल रहा: $e'};
     }
   }
 
@@ -49,22 +55,24 @@ Format your response as a valid JSON object:
     required Map<String, double> mastery,
   }) async {
     final prompt = '''
-Analyze the following student performance data and provide a detailed analysis in Hindi and English mix.
+Analyze the following student performance data.
 Attempts: ${attempts.length}
 Recent Scores: ${attempts.take(5).map((e) => '${e.testTitle}: ${e.percent}%').join(', ')}
 Subject Mastery: $mastery
 
-Provide:
-1. Overall progress summary.
-2. Strengths and weaknesses.
-3. Actionable tips to improve.
-Keep it under 200 words.
+Strict Instructions:
+1. Respond strictly in Hindi.
+2. Provide:
+   - Overall progress summary.
+   - Strengths and weaknesses (based on subjects/scores).
+   - Actionable tips to improve.
+3. Keep it under 200 words. Do not hallucinate data.
 ''';
 
     try {
       return await _postToGroq(prompt);
     } catch (e) {
-      return 'Could not generate analysis: $e';
+      return 'विश्लेषण उत्पन्न नहीं किया जा सका: $e';
     }
   }
 
@@ -74,22 +82,53 @@ Keep it under 200 words.
     String explanation = '',
   }) async {
     final prompt = '''
-Explain this question and its correct answer in simple, easy-to-understand terms for a student in Hindi/English mix.
+Explain this question and its correct answer in simple terms for a student.
 Question: "$question"
 Correct Answer: "$answer"
 ${explanation.isNotEmpty ? 'Reference Explanation: "$explanation"' : ''}
 
-Make the explanation helpful and encouraging. Keep it under 100 words.
+Strict Instructions:
+1. Respond strictly in Hindi.
+2. Make the explanation helpful and encouraging.
+3. Keep it under 100 words.
 ''';
 
     try {
       return await _postToGroq(prompt);
     } catch (e) {
-      return 'Could not generate explanation: $e';
+      return 'स्पष्टीकरण उत्पन्न नहीं किया जा सका: $e';
     }
   }
 
-  Future<String> _postToGroq(String prompt) async {
+  Future<String> explainDeep({
+    required String subject,
+    required String chapter,
+    required String topic,
+    String? context,
+  }) async {
+    final prompt = '''
+Provide a deep, expert-level explanation for a student.
+Subject: "$subject"
+Chapter: "$chapter"
+Topic: "$topic"
+${context != null ? 'Additional Context: "$context"' : ''}
+
+Strict Instructions:
+1. Respond strictly in Hindi.
+2. Explain the core concepts, common pitfalls, and why this topic is important.
+3. Use simple analogies where possible.
+4. Avoid hallucination. If you don't have enough info on the topic, provide a general educational guidance for that subject area.
+5. Keep it around 250 words.
+''';
+
+    try {
+      return await _postToGroq(prompt);
+    } catch (e) {
+      return 'गहन स्पष्टीकरण उत्पन्न नहीं किया जा सका: $e';
+    }
+  }
+
+  Future<String> _postToGroq(String prompt, {bool forceJson = false}) async {
     final model = MobileFirebaseConfig.groqModel;
 
     final response = await http.post(
@@ -101,11 +140,11 @@ Make the explanation helpful and encouraging. Keep it under 100 words.
       body: jsonEncode({
         'model': model,
         'messages': [
-          {'role': 'system', 'content': 'You are Sudarshan AI, a helpful and precise educational assistant. Always respond in a clear, encouraging manner.'},
+          {'role': 'system', 'content': 'You are Sovereign AI, a helpful, precise, and secure educational assistant. You strictly follow instructions and respond only in Hindi.'},
           {'role': 'user', 'content': prompt},
         ],
         'temperature': 0.7,
-        'response_format': prompt.contains('JSON') ? {'type': 'json_object'} : null,
+        'response_format': forceJson || prompt.contains('JSON') ? {'type': 'json_object'} : null,
       }),
     );
 
@@ -113,7 +152,7 @@ Make the explanation helpful and encouraging. Keep it under 100 words.
       final data = jsonDecode(response.body);
       return data['choices'][0]['message']['content'].toString();
     } else {
-      throw Exception('Groq API Error: ${response.statusCode} - ${response.body}');
+      throw Exception('Groq API Error: ${response.statusCode}');
     }
   }
 }

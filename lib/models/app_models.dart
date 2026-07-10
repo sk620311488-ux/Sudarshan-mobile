@@ -6,6 +6,7 @@ class AppQuestion {
     required this.topic,
     required this.questionType,
     this.explanation = '',
+    this.hint = '',
   });
 
   final String question;
@@ -14,6 +15,7 @@ class AppQuestion {
   final String topic;
   final String questionType;
   final String explanation;
+  final String hint;
 
   bool get isObjective => options.isNotEmpty;
 
@@ -34,6 +36,7 @@ class AppQuestion {
       'topic': topic,
       'question_type': questionType,
       'explanation': explanation,
+      'hint': hint,
     };
   }
 
@@ -65,6 +68,7 @@ class AppQuestion {
       topic: (json['topic'] ?? 'general').toString(),
       questionType: (json['question_type'] ?? json['questionType'] ?? 'MCQ').toString(),
       explanation: (json['explanation'] ?? '').toString(),
+      hint: (json['hint'] ?? '').toString(),
     );
   }
 }

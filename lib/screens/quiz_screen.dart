@@ -314,6 +314,7 @@ return Scaffold(
                               _AiHintButton(
                                 controller: widget.controller,
                                 question: question.question,
+                                hint: question.hint,
                               ),
                             ],
                           ),
@@ -516,58 +517,47 @@ class _AiHintButton extends StatefulWidget {
   const _AiHintButton({
     required this.controller,
     required this.question,
+    required this.hint,
   });
 
   final AppController controller;
   final String question;
+  final String hint;
 
   @override
   State<_AiHintButton> createState() => _AiHintButtonState();
 }
 
 class _AiHintButtonState extends State<_AiHintButton> {
-  bool _loading = false;
+  void _showHint() {
+    final hintText = widget.hint.trim().isEmpty 
+        ? 'Is prashan ke liye koi hint uplabdh nahi hai.' 
+        : widget.hint;
 
-  void _showHint() async {
-    setState(() => _loading = true);
-    try {
-      final hint = await widget.controller.aiExplainQuestion(
-        question: widget.question,
-        answer: 'I am taking a test, give me a subtle hint without revealing the direct answer.',
-      );
-      if (!mounted) return;
-
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.psychology, color: AppColors.accent),
-              SizedBox(width: 8),
-              Text('Sudarshan AI Hint'),
-            ],
-          ),
-          content: Text(hint),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it')),
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.lightbulb, color: AppColors.yellow),
+            SizedBox(width: 8),
+            Text('Hint'),
           ],
         ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI Error: $e')));
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+        content: Text(hintText),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it')),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      icon: _loading
-          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-          : const Icon(Icons.lightbulb_outline, color: AppColors.muted),
-      onPressed: _loading ? null : _showHint,
-      tooltip: 'Get AI Hint',
+      icon: const Icon(Icons.lightbulb_outline, color: AppColors.muted),
+      onPressed: _showHint,
+      tooltip: 'Get Hint',
     );
   }
 }

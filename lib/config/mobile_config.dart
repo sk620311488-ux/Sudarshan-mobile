@@ -7,6 +7,6 @@ class MobileFirebaseConfig {
   static const dailyTestsCollection = 'daily_tests';
 
   // Groq AI Config
-  static const groqApiKey = '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';
+  static const groqApiKey = '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';
   static const groqModel = 'llama-3.3-70b-versatile'; // High-performance free-tier model
 }

@@ -12,7 +12,7 @@ import '../state/app_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/analytics_widget.dart';
 import '../widgets/soft_card.dart';
-import 'analytics_page.dart';
+import 'auth_gate.dart';
 import 'flashcard_study_screen.dart';
 import 'friends_hub_screen.dart';
 import 'history_screen.dart';

@@ -3,7 +3,6 @@ import '../state/app_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/soft_card.dart';
 import '../widgets/analytics_widget.dart';
-import '../models/app_models.dart';
 
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key, required this.controller});

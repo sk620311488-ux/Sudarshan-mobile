@@ -374,7 +374,7 @@ return Scaffold(
                                 child: Container(
                                   padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
-                                    color: AppColors.blueSoft.withOpacity(0.3),
+                                    color: AppColors.blueSoft.withValues(alpha: 0.3),
                                     borderRadius: BorderRadius.circular(18),
                                     border: Border.all(color: AppColors.blueSoft),
                                   ),

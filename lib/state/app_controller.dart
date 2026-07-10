@@ -844,7 +844,7 @@ class AppController extends ChangeNotifier {
 
     if (_session == null || _session!.isGuest) {
       _dailyLeaderboardEntry = null;
-      await _localStoreService.saveLastDailyRank(null);
+      await _localStoreService.saveLastDailyRank(null, _session?.uid);
       return;
     }
 

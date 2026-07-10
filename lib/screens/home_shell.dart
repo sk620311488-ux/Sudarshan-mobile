@@ -13,7 +13,7 @@ import '../state/app_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/analytics_widget.dart';
 import '../widgets/soft_card.dart';
-import 'auth_gate.dart';
+import 'analytics_page.dart';
 import 'flashcard_study_screen.dart';
 import 'friends_hub_screen.dart';
 import 'history_screen.dart';
@@ -56,6 +56,7 @@ class _HomeShellState extends State<HomeShell> {
         controller: widget.controller,
         onOpenTests: () => setState(() => _index = 1),
         onOpenProfile: () => setState(() => _index = 3),
+        onOpenAnalytics: () => setState(() => _index = 3),
         onOpenLeaderboard: () {
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -146,6 +147,7 @@ class DashboardPage extends StatelessWidget {
     required this.onOpenTests,
     required this.onOpenProfile,
     required this.onOpenLeaderboard,
+    required this.onOpenAnalytics,
     this.onStartDaily,
   });
 
@@ -153,6 +155,7 @@ class DashboardPage extends StatelessWidget {
   final VoidCallback onOpenTests;
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenLeaderboard;
+  final VoidCallback onOpenAnalytics;
   final VoidCallback? onStartDaily;
 
   void _showAiAnalysis(BuildContext context, AppController controller) async {
@@ -301,7 +304,7 @@ class DashboardPage extends StatelessWidget {
                     label: const Text('Friends'),
                   ),
                   ElevatedButton.icon(
-                    onPressed: () => _showAiAnalysis(context, controller),
+                    onPressed: onOpenAnalytics,
                     icon: const Icon(Icons.psychology, size: 18),
                     label: const Text('AI Analysis'),
                     style: ElevatedButton.styleFrom(
@@ -1129,6 +1132,77 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   AppController get c => widget.controller;
 
+  String? _selectedSubject;
+  String? _selectedChapter;
+
+  void _onDeepExplain({String? subject, String? chapter, String? topic}) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final explanation = await widget.controller.aiExplainDeep(
+        subject: subject ?? 'General',
+        chapter: chapter ?? 'Advanced',
+        topic: topic ?? 'Core Concept',
+      );
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(25)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.psychology, color: AppColors.accent, size: 28),
+                  const SizedBox(width: 12),
+                  const Text('Sovereign AI Deep Explanation',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Text(explanation,
+                      style: const TextStyle(fontSize: 16, height: 1.5)),
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Got it!'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('AI Error: $e')));
+      }
+    }
+  }
+
   void _showEditIdDialog() {
     final ctrl = TextEditingController(text: c.session?.customStudentId ?? '');
     showDialog(
@@ -1203,6 +1277,8 @@ class _ProfilePageState extends State<ProfilePage> {
     final progress = c.levelProgress;
     final nextExp = c.nextLevelExp;
     final achievements = c.achievements;
+    final mastery = c.subjectMastery;
+    final activity = c.weeklyActivity;
 
     return ListView(
       padding: const EdgeInsets.all(18),
@@ -1212,17 +1288,28 @@ class _ProfilePageState extends State<ProfilePage> {
           color: AppColors.blueSoft,
           child: Column(
             children: [
-              CircleAvatar(
-                radius: 40,
-                backgroundColor: AppColors.accent,
-                child: Text(
-                  _initials(session.name),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const SizedBox(width: 40), // spacer
+                  CircleAvatar(
+                    radius: 40,
+                    backgroundColor: AppColors.accent,
+                    child: Text(
+                      _initials(session.name),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 22,
+                      ),
+                    ),
                   ),
-                ),
+                  IconButton(
+                    icon: Icon(c.isDarkMode ? Icons.light_mode : Icons.dark_mode),
+                    onPressed: () => c.toggleTheme(),
+                    tooltip: 'Toggle Theme',
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               Text(
@@ -1311,7 +1398,61 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ),
 
+        const SizedBox(height: 24),
+
+        // ── Analytics Section ──────────────────────────────────
+        Text('Performance Analytics', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 12),
+        WeeklyActivityCard(activity: activity),
         const SizedBox(height: 16),
+        Text('Subject Mastery', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 12),
+        _SubjectPieSimulator(
+          mastery: mastery,
+          onSubjectTap: (sub) => setState(() {
+            _selectedSubject = sub;
+            _selectedChapter = null;
+          }),
+        ),
+
+        if (_selectedSubject != null) ...[
+          const SizedBox(height: 18),
+          const Divider(),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('$_selectedSubject Analysis',
+                  style: theme.textTheme.titleLarge),
+              IconButton(
+                  onPressed: () => setState(() => _selectedSubject = null),
+                  icon: const Icon(Icons.close)),
+            ],
+          ),
+          _ChapterErrorAnalysis(
+            controller: widget.controller,
+            subject: _selectedSubject!,
+            onChapterTap: (ch) => setState(() => _selectedChapter = ch),
+          ),
+        ],
+
+        if (_selectedChapter != null) ...[
+          const SizedBox(height: 18),
+          Text('$_selectedChapter Topics', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 12),
+          _TopicErrorAnalysis(
+            controller: widget.controller,
+            subject: _selectedSubject!,
+            chapter: _selectedChapter!,
+            onDeepExplain: (topic) => _onDeepExplain(
+              subject: _selectedSubject,
+              chapter: _selectedChapter,
+              topic: topic,
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 24),
 
         // ── Achievements ───────────────────────────────────────
         Text('Achievements', style: theme.textTheme.titleLarge),
@@ -1555,6 +1696,160 @@ class _MiniTag extends StatelessWidget {
             fontWeight: FontWeight.w700,
             color: Theme.of(context).colorScheme.onSurface),
       ),
+    );
+  }
+}
+
+class _SubjectPieSimulator extends StatelessWidget {
+  const _SubjectPieSimulator(
+      {required this.mastery, required this.onSubjectTap});
+  final Map<String, double> mastery;
+  final Function(String) onSubjectTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (mastery.isEmpty) return const SoftCard(child: Text('No test data yet.'));
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: mastery.entries.map((e) {
+        final color = _getColorForPercent(e.value);
+        return GestureDetector(
+          onTap: () => onSubjectTap(e.key),
+          child: Container(
+            width: (MediaQuery.of(context).size.width - 48) / 2,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text('${e.value.round()}% Mastery',
+                    style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18)),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Color _getColorForPercent(double p) {
+    if (p >= 80) return AppColors.green;
+    if (p >= 50) return AppColors.yellow;
+    return AppColors.coral;
+  }
+}
+
+class _ChapterErrorAnalysis extends StatelessWidget {
+  const _ChapterErrorAnalysis(
+      {required this.controller,
+      required this.subject,
+      required this.onChapterTap});
+  final AppController controller;
+  final String subject;
+  final Function(String) onChapterTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final attempts =
+        controller.attempts.where((a) => a.subject == subject).toList();
+    final chapterErrors = <String, int>{};
+    for (final a in attempts) {
+      final errors = a.total - a.score;
+      if (errors > 0) {
+        chapterErrors[a.chapter] = (chapterErrors[a.chapter] ?? 0) + errors;
+      }
+    }
+
+    if (chapterErrors.isEmpty) {
+      return const SoftCard(
+          child: Text('Is subject mein koi galtiyan nahi mili! Great job.'));
+    }
+
+    return Column(
+      children: chapterErrors.entries
+          .map((e) => ListTile(
+                title: Text(e.key),
+                subtitle: Text('${e.value} galtiyan'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => onChapterTap(e.key),
+              ))
+          .toList(),
+    );
+  }
+}
+
+class _TopicErrorAnalysis extends StatelessWidget {
+  const _TopicErrorAnalysis({
+    required this.controller,
+    required this.subject,
+    required this.chapter,
+    required this.onDeepExplain,
+  });
+  final AppController controller;
+  final String subject;
+  final String chapter;
+  final Function(String) onDeepExplain;
+
+  @override
+  Widget build(BuildContext context) {
+    final cards = controller.notebookCards
+        .where((c) => c.subject == subject && c.chapter == chapter)
+        .toList();
+    final topicMistakes = <String, int>{};
+    for (final c in cards) {
+      if (c.mistakeCount > 0) {
+        topicMistakes[c.topic] = (topicMistakes[c.topic] ?? 0) + c.mistakeCount;
+      }
+    }
+
+    if (topicMistakes.isEmpty) {
+      return const SoftCard(
+          child: Text(
+              'Is chapter ke topics mein koi recorded galtiyan nahi hain.'));
+    }
+
+    return Column(
+      children: topicMistakes.entries
+          .map((e) => SoftCard(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(e.key,
+                              style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text('${e.value} mistakes tracked'),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => onDeepExplain(e.key),
+                      icon: const Icon(Icons.psychology, size: 16),
+                      label: const Text('AI Deep explain'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        backgroundColor: AppColors.tealSoft,
+                        foregroundColor: AppColors.text,
+                      ),
+                    ),
+                  ],
+                ),
+              ))
+          .toList(),
     );
   }
 }

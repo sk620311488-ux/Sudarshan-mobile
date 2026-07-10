@@ -1242,6 +1242,20 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  Future<String> aiExplainDeep({
+    required String subject,
+    required String chapter,
+    required String topic,
+    String? context,
+  }) async {
+    return _aiService.explainDeep(
+      subject: subject,
+      chapter: chapter,
+      topic: topic,
+      context: context,
+    );
+  }
+
   List<AppAttempt> _mergeAttempts(
     List<AppAttempt> primary,
     List<AppAttempt> secondary,

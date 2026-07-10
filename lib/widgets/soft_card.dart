@@ -8,11 +8,13 @@ class SoftCard extends StatelessWidget {
     required this.child,
     this.color = AppColors.white,
     this.padding = const EdgeInsets.all(18),
+    this.margin = EdgeInsets.zero,
   });
 
   final Widget child;
   final Color color;
   final EdgeInsetsGeometry padding;
+  final EdgeInsetsGeometry margin;
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +32,7 @@ class SoftCard extends StatelessWidget {
     }
 
     return Container(
+      margin: margin,
       padding: padding,
       decoration: BoxDecoration(
         color: effectiveColor,

@@ -1777,7 +1777,7 @@ class _ChapterErrorAnalysis extends StatelessWidget {
 
     return Column(
       children: chapterErrors.entries
-          .map((e) => ListTile(
+          .map<Widget>((e) => ListTile(
                 title: Text(e.key),
                 subtitle: Text('${e.value} galtiyan'),
                 trailing: const Icon(Icons.chevron_right),
@@ -1820,7 +1820,7 @@ class _TopicErrorAnalysis extends StatelessWidget {
 
     return Column(
       children: topicMistakes.entries
-          .map((e) => SoftCard(
+          .map<Widget>((e) => SoftCard(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [

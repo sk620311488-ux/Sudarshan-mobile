@@ -216,7 +216,7 @@ class _ChapterErrorAnalysis extends StatelessWidget {
     if (chapterErrors.isEmpty) return const SoftCard(child: Text('Is subject mein koi galtiyan nahi mili! Great job.'));
 
     return Column(
-      children: chapterErrors.entries.map((e) => ListTile(
+      children: chapterErrors.entries.map<Widget>((e) => ListTile(
         title: Text(e.key),
         subtitle: Text('${e.value} galtiyan'),
         trailing: const Icon(Icons.chevron_right),
@@ -251,7 +251,7 @@ class _TopicErrorAnalysis extends StatelessWidget {
     if (topicMistakes.isEmpty) return const SoftCard(child: Text('Is chapter ke topics mein koi recorded galtiyan nahi hain.'));
 
     return Column(
-      children: topicMistakes.entries.map((e) => SoftCard(
+      children: topicMistakes.entries.map<Widget>((e) => SoftCard(
         margin: const EdgeInsets.only(bottom: 8),
         child: Row(
           children: [
